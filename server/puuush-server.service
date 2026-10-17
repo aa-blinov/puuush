@@ -1,0 +1,29 @@
+[Unit]
+Description=puuush server — приём файлов от клиента puuush
+Documentation=https://github.com/aa-blinov/puuush/tree/main/server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/pet/puuush/server
+ExecStart=/usr/bin/node /home/ubuntu/pet/puuush/server/index.js
+Environment=PUUUSH_CONFIG=/srv/puuush-server/config.json
+Restart=on-failure
+RestartSec=3
+
+# Слушаем 0.0.0.0, потому что к нам стучится Caddy из контейнера edge, а он
+# приходит с адреса сети 172.40.0.0/24. Открыт ровно один порт в ufw.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/srv/media
+
+[Install]
+WantedBy=multi-user.target

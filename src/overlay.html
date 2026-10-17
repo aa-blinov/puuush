@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'self';">
+<title>puuush</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    cursor: crosshair;
+    user-select: none;
+    -webkit-user-select: none;
+    font: 13px/1.4 -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  #shot {
+    position: absolute;
+    inset: 0;
+    display: none;
+  }
+  #veil {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  #sel {
+    position: absolute;
+    display: none;
+    border: 1px solid #4a9eff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .5);
+    background: transparent;
+  }
+  /* Вырез: инвертированный подсвеченный прямоугольник внутри затемнения. */
+  #cut {
+    position: absolute;
+    display: none;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .45);
+    border: 1px solid #4a9eff;
+  }
+  #hint {
+    position: absolute;
+    left: 50%;
+    top: 24px;
+    transform: translateX(-50%);
+    padding: 7px 14px;
+    border-radius: 8px;
+    background: rgba(20, 20, 22, .92);
+    color: #f2f2f5;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .45);
+  }
+  #hint b { color: #7cc0ff; font-weight: 600; }
+  #size {
+    position: absolute;
+    display: none;
+    padding: 3px 7px;
+    border-radius: 5px;
+    background: #4a9eff;
+    color: #06121f;
+    font-size: 11px;
+    font-weight: 700;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #err {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 20px 26px;
+    border-radius: 10px;
+    background: rgba(20, 20, 22, .95);
+    color: #ffd7d7;
+    display: none;
+    max-width: 70%;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div id="err"></div>
+  <img id="shot" alt="">
+  <div id="veil"></div>
+  <div id="cut"></div>
+  <div id="size"></div>
+  <div id="hint">
+    Тяни рамку — <b>Enter</b> подтвердить, <b>Esc</b> отменить,
+    <b>Space</b> — весь экран
+  </div>
+
+  <script src="overlay.js"></script>
+</body>
+</html>

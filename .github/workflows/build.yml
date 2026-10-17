@@ -1,0 +1,79 @@
+name: build
+
+# Сборка идёт нативно на раннере каждой ОС: electron-builder не умеет
+# cross-build, поэтому mac и windows собираются только своими раннерами.
+# Это и есть ответ на вопрос «а как оно собирается в gh».
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Подписки на CI нет, поэтому говорим electron-builder не искать сертификаты:
+  # без этого mac-сборка падает на попытке их найти.
+  CSC_IDENTITY_AUTO_DISCOVERY: false
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  linux:
+    name: linux (AppImage + deb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx electron-builder --linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: puuush-linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+
+  windows:
+    name: windows (инсталлятор)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx electron-builder --win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: puuush-windows
+          path: dist/*.exe
+
+  macos:
+    name: mac (${{ matrix.arch }})
+    # macos-14 — arm64 (Apple Silicon), macos-13 — x64 (Intel).
+    # На одном раннере обе архитектуры не собрать.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx electron-builder --mac --${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: puuush-mac-${{ matrix.arch }}
+          path: dist/*.dmg
