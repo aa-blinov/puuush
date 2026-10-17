@@ -32,9 +32,6 @@ function loadConfig() {
     host: raw.host || '127.0.0.1',
     port: Number(raw.port || 8099),
     dir: raw.dir || '/srv/media',
-    // Куда сваливать незаконченные загрузки. Должен быть на том же томе,
-    // иначе rename между томами не атомарен.
-    tmpDir: raw.tmpDir || '/srv/puuush-tmp',
     writeKey: String(raw.write_key || ''),
     publicBase: String(raw.public_base || '').replace(/\/+$/, ''),
     maxBytes: Number(raw.max_bytes || 32 * 1024 * 1024),
@@ -128,32 +125,54 @@ function log(req, status, ms, extra = '') {
  * Потоковый разбор не нужен: скриншоты маленькие, а лимит тела всё равно
  * держится в памяти. Зато границы нельзя потерять на границе чанков.
  */
+/**
+ * Следующая граница начиная с позиции from.
+ *
+ * Разделитель ищется только там, где он стоит в начале строки. Иначе файл,
+ * внутри которого случилась строка вида «--граница», обрезался бы по этому
+ * совпадению: наивный indexOf находит подстроку в данных и объявляет конец
+ * части. У бинарного файла такое совпадение вполне возможно.
+ */
+function findBoundary(buf, delim, from) {
+  for (let pos = buf.indexOf(delim, from); pos !== -1; pos = buf.indexOf(delim, pos + 1)) {
+    if (pos === 0 || (buf[pos - 2] === 0x0d && buf[pos - 1] === 0x0a)) return pos;
+  }
+  return -1;
+}
+
 function parseMultipart(buf, boundary) {
   const delim = Buffer.from(`--${boundary}`);
   const parts = [];
-  let pos = buf.indexOf(delim);
+
+  let pos = findBoundary(buf, delim, 0);
   if (pos === -1) return parts;
   pos += delim.length;
+
   for (;;) {
-    if (buf[pos] === 0x2d && buf[pos + 1] === 0x2d) break; // "--" = конец
+    // «--» сразу после границы означает конец всего тела.
+    if (buf[pos] === 0x2d && buf[pos + 1] === 0x2d) break;
     if (buf[pos] === 0x0d) pos += 2;
+
     const headerEnd = buf.indexOf('\r\n\r\n', pos, 'utf8');
     if (headerEnd === -1) break;
     const header = buf.slice(pos, headerEnd).toString('utf8');
     const bodyStart = headerEnd + 4;
-    let bodyEnd = buf.indexOf(delim, bodyStart);
-    if (bodyEnd === -1) bodyEnd = buf.length;
-    let stop = bodyEnd;
-    if (buf[stop - 2] === 0x0d && buf[stop - 1] === 0x0a) stop -= 2;
+
+    const next = findBoundary(buf, delim, bodyStart);
+    let bodyEnd = next === -1 ? buf.length : next;
+    // У найденной границы два байта \r\n принадлежат разделителю, не файлу.
+    if (bodyEnd >= 2 && buf[bodyEnd - 2] === 0x0d && buf[bodyEnd - 1] === 0x0a) bodyEnd -= 2;
 
     const nameMatch = /name="([^"]*)"/i.exec(header);
     const fileMatch = /filename="([^"]*)"/i.exec(header);
     parts.push({
       name: nameMatch ? nameMatch[1] : '',
       filename: fileMatch ? fileMatch[1] : null,
-      data: buf.slice(bodyStart, stop),
+      data: buf.slice(bodyStart, bodyEnd),
     });
-    pos = bodyEnd + delim.length;
+
+    if (next === -1) break;
+    pos = next + delim.length;
     if (pos >= buf.length) break;
   }
   return parts;
@@ -212,14 +231,24 @@ async function writeUpload(cfg, rawName, data, extra = {}) {
   // одинаковом dev в df. Своего каталога для временных файлов теперь нет.
   const final = path.join(dir, name);
   const tmp = path.join(dir, `.${name}.part`);
-  const fh = await fsp.open(tmp, 'w');
   try {
-    await fh.writeFile(data);
-    await fh.sync(); // не отдавать файл, пока он не на диске
-  } finally {
-    await fh.close();
+    const fh = await fsp.open(tmp, 'w');
+    try {
+      await fh.writeFile(data);
+      await fh.sync(); // не отдавать файл, пока он не на диске
+    } finally {
+      await fh.close();
+    }
+    await fsp.rename(tmp, final);
+  } catch (e) {
+    // Не оставляем после себя огрызок: кончился диск или кончились права.
+    // Иначе мусор копится до следующей уборки и ест то самое место,
+    // которого и не хватило.
+    await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+    const err = new Error('не удалось сохранить файл на сервере');
+    err.cause = e;
+    throw err;
   }
-  await fsp.rename(tmp, final);
   await fsp.writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
   return meta;
 }
@@ -336,13 +365,61 @@ function jsonAbort(res, status, obj) {
 }
 
 // ---------------------------------------------------------------------------
-// Обработчики
+// Ограничение частоты
 // ---------------------------------------------------------------------------
+
+/**
+ * Скользящее окно по каждому адресу. Ключ 256 бит, перебрать его бессмысленно
+ * даже без лимита, но поток мусорных запросов на публичный эндпоинт это
+ * расходуемые ядра и полоса. Счётчики чистим по ttl, иначе память растёт
+ * вместе с числом разных адресов.
+ */
+function makeLimiter({ windowMs = 60_000, max = 30 } = {}) {
+  const hits = new Map();
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, ts] of hits) {
+      if (ts.every((t) => now - t > windowMs)) hits.delete(ip);
+    }
+  }, windowMs);
+  sweep.unref();
+
+  return function limit(ip) {
+    const now = Date.now();
+    let ts = hits.get(ip);
+    if (!ts) { ts = []; hits.set(ip, ts); }
+    ts = ts.filter((t) => now - t <= windowMs);
+    ts.push(now);
+    hits.set(ip, ts);
+    return { count: ts.length, over: ts.length > max };
+  };
+}
 
 function authOk(req, cfg) {
   const h = req.headers.authorization || '';
   const m = /^Bearer\s+(.+)$/i.exec(h.trim());
   return m ? secretEquals(m[1].trim(), cfg.writeKey) : false;
+}
+
+/**
+ * Кто пришёл. За nginx это X-Forwarded-For, у него список цепочкой, берём
+ * первый — исходный клиент. Прямому подключению без прокси header тоже есть
+ * адрес, так что подмена значения на клиенте ничего не даёт: на сервис
+ * снаружи не попасть.
+ */
+const EDGE_NET = /^172\.40\.\d+\.\d+$/;
+
+function clientIp(req) {
+  const remote = req.socket.remoteAddress || 'unknown';
+  const fwd = req.headers['x-forwarded-for'];
+  // Заголовок ставит прокси. Если соединение пришло не из сети edge, перед нами
+  // прямой клиент, и он волен написать в этот заголовок что угодно: лимит по
+  // нему тогда обходится простой ротацией значения. Поэтому верим заголовку
+  // только рядом с настоящим прокси.
+  if (EDGE_NET.test(remote) && typeof fwd === 'string' && fwd.length) {
+    return fwd.split(',')[0].trim();
+  }
+  return remote;
 }
 
 async function handleUpload(req, res, cfg) {
@@ -379,6 +456,7 @@ async function handleUpload(req, res, cfg) {
 }
 
 function createServer(cfg) {
+  const limit = makeLimiter({ windowMs: 60_000, max: 30 });
   return http.createServer(async (req, res) => {
     const t0 = Date.now();
     const url = new URL(req.url, 'http://localhost');
@@ -393,7 +471,19 @@ function createServer(cfg) {
       }
 
       if (path_.startsWith('/v1/')) {
+        const ip = clientIp(req);
+
+        // Лимит считаем по каждому неудачному ключу отдельно: нормальный
+        // клиент ошибается редко, а подбор ключа с одного адреса упирается в
+        // стену. Успешные запросы не штрафуем, иначе серия скриншотов
+        // за минуту упрётся в лимит.
         if (!authOk(req, cfg)) {
+          const { count, over } = limit(ip);
+          if (over) {
+            return json(res, 429, {
+              error: `слишком много попыток без ключа (${count} за минуту), подожди`,
+            });
+          }
           res.setHeader('WWW-Authenticate', 'Bearer realm="puuush"');
           return json(res, 401, { error: 'нужен ключ: Authorization: Bearer <write_key>' });
         }
@@ -438,7 +528,11 @@ function createServer(cfg) {
           max_bytes: cfg.maxBytes,
         });
       }
-      return json(res, 500, { error: String(e.message || e) });
+      // Наружу нейтральный текст: сырое сообщение Node уносит в клиент
+      // абсолютный путь файловой системы и намекает на раскладку каталогов.
+      // Детали — только в свой лог.
+      process.stderr.write(`внутренняя ошибка: ${e.stack || e}\n`);
+      return json(res, 500, { error: 'внутренняя ошибка сервера, подробности в его логе' });
     }
   });
 }
@@ -466,7 +560,14 @@ async function main() {
   setInterval(tick, 15 * 60 * 1000).unref();
 }
 
-main().catch((e) => {
-  process.stderr.write(`не стартовал: ${e.stack || e}\n`);
-  process.exit(1);
-});
+// При запуске как сервиса поднимаемся и слушаем. При require из тестов
+// ничего не стартует, а наружу отдаются конструктор и чтение конфига: иначе
+// тесту пришлось бы вырезать этот файл по кускам.
+if (require.main === module) {
+  main().catch((e) => {
+    process.stderr.write(`не стартовал: ${e.stack || e}\n`);
+    process.exit(1);
+  });
+} else {
+  module.exports = { createServer, loadConfig, secretEquals, parseMultipart, safeName };
+}

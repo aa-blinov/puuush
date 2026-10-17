@@ -29,6 +29,23 @@ const { captureTo } = require('./capture');
 const ASSETS = path.join(__dirname, '..', 'assets');
 
 let tray = null;
+
+/**
+ * Есть ли в системе трей, который реально что-то покажет.
+ *
+ * Конструктор `new Tray()` без системного трея не бросает исключение: он
+ * молча создаёт объект, который ничего не рисует. Если ориентироваться на
+ * него, приложение останется невидимым, и выйти из него будет нечем.
+ * На Linux иконка трея живёт через StatusNotifier поверх сессионной шины
+ * DBus, поэтому проверяем её наличие.
+ *
+ * Слепой случай, который честно не закрывается кодом: GNOME без расширения
+ * AppIndicator. Шина DBus там есть, трея нет, проверка скажет «есть».
+ */
+function trayAvailable() {
+  if (process.platform !== 'linux') return true;
+  return !!(process.env.DBUS_SESSION_BUS_ADDRESS && process.env.XDG_CURRENT_DESKTOP);
+}
 let settingsWin = null;
 let busy = false;
 
@@ -67,34 +84,113 @@ function runCli(argv) {
 // Загрузка
 // ---------------------------------------------------------------------------
 
+// Последняя ошибка и последняя ссылка. Уведомления на голом Linux без
+// notification-daemon не показываются вообще, поэтому статус должен быть виден
+// ещё и в трее: иначе пользователь не узнает ни о сбое, ни о том, куда ушёл
+// скриншот.
+let lastError = null;
+let lastUpload = null;
+
+function noteError(msg) {
+  lastError = String(msg);
+  buildTrayMenu();
+}
+
+function clearError() {
+  lastError = null;
+  buildTrayMenu();
+}
+
 /** Уведомление, молча пропускаемое там, где его показывать нечем. */
 function notify(title, body) {
   if (!Notification.isSupported()) return;
   new Notification({ title, body, silent: true }).show();
 }
 
+/**
+ * Кладёт ссылку в буфер, но никогда не теряет её из-за буфера.
+ *
+ * clipboard.writeText бросает исключение, если буфер занят другой программой
+ * (на X11 и Wayland это случается) или если системного буфера обмена нет
+ * вовсе. Файл к этому моменту уже залит, ссылка уже есть, терять её из-за
+ * того, что не сработала вспомогательная удобность, нельзя. Поэтому при
+ * отказе показываем ссылку окном и продолжаем.
+ */
+function deliverToClipboard(url, what = 'ссылка') {
+  try {
+    clipboard.writeText(url);
+    return true;
+  } catch (e) {
+    noteError('буфер занят, ' + what + ' ниже');
+    notify('puuush', `буфер занят, ${what} ниже\n${url}`);
+    dialog.showMessageBox({
+      type: 'warning',
+      message: 'Буфер обмена недоступен',
+      detail: `${url}\n\nСкопируй вручную. Причина: ${e.message}`,
+      buttons: ['Скопировать', 'Закрыть'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then(({ response }) => {
+      if (response === 0) {
+        try {
+          clipboard.writeText(url);
+        } catch (err) {
+          /* второй отказ: ссылка уже на экране, её можно выделить руками */
+        }
+      }
+    });
+    return false;
+  }
+}
+
 async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) {
   const s = store.getSettings();
+  const wantedOwn = s.host === 'own' || (s.host === 'auto' && s.own && s.own.base_url);
+  let ownFailed = null;
   try {
     notify('puuush', 'загружаю…');
     const r = await publish(filePath, {
       host: s.host,
       own: s.own,
-      onStep: (m) => broadcast('puuush:progress', { state: 'step', message: m }),
+      onStep: (m) => {
+        broadcast('puuush:progress', { state: 'step', message: m });
+        // Причина отказа своего сервера всплывает в этом шаге, и её уже
+        // нельзя потерять.
+        if (/свой box/i.test(m) && /(не сработал|не настроен|не отдал|отклонил)/i.test(m)) {
+          ownFailed = m;
+        }
+      },
     });
-    clipboard.writeText(r.url);
+
+    // Понижение приватности должно быть заметно. Иначе режим «авто» тихо
+    // отправляет скриншот в публичный интернет, и человек об этом не знает.
+    if (ownFailed && r.host !== 'свой box') {
+      const msg = `${ownFailed}. Файл ушёл на ${r.host}, он публичный.`;
+      noteError(msg);
+      notify('puuush', msg);
+    } else {
+      clearError();
+    }
+
+    const copied = deliverToClipboard(r.url);
+    lastUpload = { url: r.url, host: r.host, at: Date.now() };
     store.addHistory({ url: r.url, host: r.host, temp: r.temp, file: filePath, source });
     buildTrayMenu();
-    notify('puuush', `${source}: ссылка в буфере\n${r.url}`);
+    notify('puuush', copied
+      ? `${source}: ссылка в буфере\n${r.url}`
+      : `${source}: ссылка готова, буфер занят\n${r.url}`);
     broadcast('puuush:progress', {
       state: 'done',
       url: r.url,
       host: r.host,
       temp: r.temp,
+      copied,
+      privacyDowngraded: !!(ownFailed && r.host !== 'свой box'),
     });
     if (s.openAfterUpload) shell.openExternal(r.url);
     return r;
   } catch (e) {
+    noteError(e.message);
     notify('puuush', 'не получилось: ' + e.message);
     broadcast('puuush:progress', { state: 'error', message: e.message });
     throw e;
@@ -109,7 +205,12 @@ function broadcast(channel, payload) {
 
 /** Снимок экрана -> область -> загрузка -> буфер. */
 async function shoot() {
-  if (busy) return;
+  if (busy) {
+    // Нажатие во время съёмки: раньше оно просто игнорировалось, и выглядело
+    // как сломанный хоткей.
+    notify('puuush', 'предыдущий снимок ещё выбирается');
+    return;
+  }
   busy = true;
   broadcast('puuush:progress', { state: 'capturing' });
   try {
@@ -160,8 +261,9 @@ function historyMenu() {
     label: `${h.url.length > 58 ? h.url.slice(0, 58) + '…' : h.url}  (${h.host})`,
     toolTip: h.url,
     click: () => {
-      clipboard.writeText(h.url);
-      notify('puuush', 'ссылка скопирована');
+      if (deliverToClipboard(h.url, 'ссылка из истории')) {
+        notify('puuush', 'ссылка скопирована');
+      }
     },
   }));
   menu.push({ type: 'separator' });
@@ -173,9 +275,23 @@ function buildTrayMenu() {
   if (!tray) return;
   const s = store.getSettings();
   tray.setToolTip('puuush — снимок по ' + s.hotkey);
+
+  const status = [];
+  if (lastError) status.push({ label: 'Ошибка: ' + lastError, enabled: false });
+  if (lastUpload) {
+    const when = new Date(lastUpload.at).toLocaleTimeString('ru-RU', {
+      hour: '2-digit', minute: '2-digit',
+    });
+    status.push({
+      label: `Последний: ${lastUpload.host}, ${when}`,
+      enabled: false,
+    });
+  }
+
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Снять область экрана', accelerator: s.hotkey, click: shoot },
+      ...(status.length ? [{ type: 'separator' }, ...status] : []),
       { type: 'separator' },
       {
         label: 'Загрузить файл…',
@@ -409,9 +525,15 @@ async function runSelfTest() {
     step(fs.statSync(file).size > 0, 'нарезка и запись',
       `${cut.getSize().width}x${cut.getSize().height} -> ${file}`);
 
-    tray = new Tray(trayImage());
-    buildTrayMenu();
-    step(true, 'трей', `иконка ${trayImage().isEmpty() ? 'НЕ' : ''}загружена`);
+    // Трея в системе может не быть вовсе. Это не повод ронять проверку целиком,
+    // поэтому падение трея — предупреждение, а не ошибка.
+    try {
+      tray = new Tray(trayImage());
+      buildTrayMenu();
+      step(true, 'трей', `иконка ${trayImage().isEmpty() ? 'НЕ ' : ''}загружена`);
+    } catch (e) {
+      step(false, 'трей', `в системе нет трея: ${e.message}`);
+    }
 
     const okHot = applyHotkey();
     step(okHot, 'хоткей', okHot ? `${s.hotkey} занят` : `${s.hotkey} занять не удалось`);
@@ -468,6 +590,21 @@ app.on('will-quit', () => globalShortcut.unregisterAll());
 if (cliIdx !== -1 || testIdx !== -1) {
   // Служебные режимы не берут single-instance lock: иначе запуск из скрипта,
   // когда трей уже висит, молча вышел бы.
+  //
+  // Без дисплея Electron умирает на инициализации Ozone ещё до whenReady(),
+  // и пользователь видит стек ошибок вместо внятного объяснения. Проверяем
+  // сами и говорим человеческим языком, чем запускать в таком окружении.
+  const headless = process.platform === 'linux' &&
+    !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+  if (headless && cliIdx !== -1) {
+    process.stderr.write(
+      'puuush --cli: нет дисплея. Запусти так:\n' +
+      '  xvfb-run -a puuush --cli файл.png\n' +
+      'или с DISPLAY, если есть графическая сессия.\n'
+    );
+    process.exit(2);
+  }
+
   app.whenReady().then(() => {
     if (cliIdx !== -1) return runCli(process.argv.slice(cliIdx + 1));
     return runSelfTest();
@@ -482,15 +619,38 @@ if (cliIdx !== -1 || testIdx !== -1) {
     });
 
     app.whenReady().then(() => {
-      if (app.dock) app.dock.hide(); // приложение живёт в трее
-
-      tray = new Tray(trayImage());
-      buildTrayMenu();
       registerIpc();
+
+      // Приложение живёт в трее. Трея в системе может не быть, и тогда ни
+      // значка, ни меню, ни способа выйти. В таком случае держим окно настроек
+      // на экране.
+      //
+      // `new Tray()` без системного трея НЕ бросает исключение, он молча
+      // создаёт объект, который ничего не показывает. Ориентироваться на
+      // конструктор бессмысленно. На Linux иконка живёт через StatusNotifier
+      // поверх сессионной шины DBus: нет адреса шины, нет и трея.
+      //
+      // Слепой случай остаётся: GNOME без расширения AppIndicator. Шина DBus
+      // есть, трея нет, проверка скажет «есть». Приложение вытащит горячей
+      // клавишей, но до настроек не добраться.
+      const noTray = !trayAvailable();
+      if (noTray) {
+        app.dock?.show?.();
+        const w = openSettings();
+        w.setAlwaysOnTop(true);
+      } else {
+        tray = new Tray(trayImage());
+        buildTrayMenu();
+        app.dock?.hide?.();
+      }
+
       applyHotkey();
 
       app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) buildTrayMenu();
+        if (BrowserWindow.getAllWindows().length === 0) {
+          if (tray) buildTrayMenu();
+          else openSettings();
+        }
       });
     });
   }

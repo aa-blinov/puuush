@@ -54,6 +54,13 @@ const HOSTS = [
   // «No file!» на любой запрос. Если хостинг оживёт — добавить обратно сюда.
 ];
 
+// Потолок одного файла. Верхняя цифра взята из лимитов публичных хостингов:
+// файл больше отправлять всё равно некуда, а память под него тратится сразу.
+const MAX_UPLOAD = 64 * 1024 * 1024;
+// Ответ на проверку ссылки читается только до этого объёма: нам нужно знать
+// «отдался ли файл», а не скачать его целиком.
+const MAX_REPLY = 2 * 1024 * 1024;
+
 /** Собирает multipart тело. Возвращает Buffer и заголовок с границей. */
 function multipart(fields, fileField, filePath, filename) {
   const boundary =
@@ -78,7 +85,12 @@ function multipart(fields, fileField, filePath, filename) {
 }
 
 /** HTTP(S) запрос с телом. Возвращает { status, headers, body }. Редиректы — вручную. */
-function request(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3 } = {}) {
+function request(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3, maxBytes = MAX_REPLY } = {}) {
+  if (module.exports.__request) return module.exports.__request(url, { method, headers, body, timeout });
+  return realRequest(url, { method, headers, body, timeout, redirects, maxBytes });
+}
+
+function realRequest(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3, maxBytes = MAX_REPLY } = {}) {
   return new Promise((resolve, reject) => {
     const send = (target, left) => {
       let u;
@@ -97,8 +109,14 @@ function request(url, { method = 'GET', headers = {}, body = null, timeout = 600
             res.resume();
             return send(new URL(res.headers.location, u).toString(), left - 1);
           }
+          // Тело склеивается целиком, поэтому потолок обязателен: без него
+          // проверка ссылки на файле в сотни мегабайт съест столько же RAM.
+          let size = 0;
           const out = [];
-          res.on('data', (c) => out.push(c));
+          res.on('data', (c) => {
+            size += c.length;
+            if (size <= maxBytes) out.push(c);
+          });
           res.on('end', () =>
             resolve({ status: code, headers: res.headers, body: Buffer.concat(out) })
           );
@@ -248,10 +266,19 @@ function safeName(p) {
  * @returns {Promise<{url:string, host:string, temp:boolean, size:number}>}
  */
 async function publish(filePath, opts = {}) {
-  const { host = 'auto', own = null, onStep = () => {} } = opts;
+  const { host = 'auto', own = null, onStep = () => {}, maxBytes = MAX_UPLOAD } = opts;
   if (!fs.existsSync(filePath)) throw new Error('нет файла: ' + filePath);
   const size = fs.statSync(filePath).size;
   if (!size) throw new Error('файл пустой: ' + filePath);
+  // Файл читается в память целиком и склеивается из чанков, то есть
+  // занимает примерно удвоенный объём: 400 МБ файла съедали 880 МБ RAM.
+  // Проверка ссылки ниже тянет ещё и сам файл. Потолок отсекает видео,
+  // которые всё равно никто не отправит.
+  if (size > maxBytes) {
+    throw new Error(
+      `файл ${Math.round(size / 1048576)} МБ больше потолка ${Math.round(maxBytes / 1048576)} МБ`
+    );
+  }
 
   if (host === 'own') {
     if (!own || !own.base_url || !own.write_key) {
@@ -292,7 +319,7 @@ async function publish(filePath, opts = {}) {
       continue;
     }
     onStep(`${h.name}: проверяю ссылку`);
-    if (!(await verify(url, size))) {
+    if (!(await verify(url, size, maxBytes ? 2 * 1024 * 1024 : MAX_REPLY))) {
       onStep(`${h.name}: ссылка не вывозит файл, иду дальше`);
       reasons.push(`${h.name} — ссылка не вывозит файл`);
       continue;
@@ -311,3 +338,26 @@ async function publish(filePath, opts = {}) {
 }
 
 module.exports = { publish, verify, safeName, HOSTS };
+
+// --- точки подмены для тестов -------------------------------------------------
+// Живой код их не зовёт. Сеть в тестах не должна ходить в интернет, а список
+// хостингов должен быть предсказуемым, поэтому оба подменяются наружу.
+// Возвращают предыдущее значение, чтобы тест восстановил его в finally.
+module.exports.__setRequestForTests = (fn) => {
+  const prev = request;
+  module.exports.__request = fn;
+  return prev;
+};
+module.exports.__restoreRequestForTests = (prev) => {
+  module.exports.__request = prev;
+};
+module.exports.__setHostsForTests = (list) => {
+  const prev = HOSTS.slice();
+  HOSTS.length = 0;
+  HOSTS.push(...list);
+  return prev;
+};
+module.exports.__restoreHostsForTests = (prev) => {
+  HOSTS.length = 0;
+  HOSTS.push(...prev);
+};

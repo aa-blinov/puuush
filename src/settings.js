@@ -17,7 +17,17 @@ function clearSay() {
 }
 
 async function save(patch) {
-  settings = await window.puuush.saveSettings(patch);
+  try {
+    settings = await window.puuush.saveSettings(patch);
+  } catch (e) {
+    // Настройки не сохранились. Молча показывать новое значение нельзя:
+    // после перезапуска всё откатится, а режим приватности вернётся в «авто».
+    say(e && e.message ? e.message : String(e), 'bad');
+    $('stateTag').textContent = 'не сохранено';
+    settings = await window.puuush.getSettings();
+    renderSettings();
+    return settings;
+  }
   return settings;
 }
 
@@ -51,6 +61,9 @@ function stopListening() {
 
 $('hotkey').addEventListener('click', startListening);
 $('hotkey').addEventListener('focus', startListening);
+// Без этого протабавал мимо поля, а надпись «нажми комбинацию…» осталась
+// висеть, хотя настройка не менялась и поле показывало бы старый хоткей.
+$('hotkey').addEventListener('blur', stopListening);
 
 document.addEventListener('keydown', (e) => {
   if (!listening) return;
@@ -233,10 +246,9 @@ $('clearHistory').addEventListener('click', async () => {
 
 // --- старт ---
 
-(async function init() {
-  settings = await window.puuush.getSettings();
+/** Раскладывает настройки по полям. Вызывается и при откате записи. */
+function renderSettings() {
   $('hotkey').value = settings.hotkey;
-  await initHosts();
   $('host').value = settings.host;
   $('ownUrl').value = settings.own.base_url || '';
   $('ownKey').value = settings.own.write_key || '';
@@ -244,5 +256,11 @@ $('clearHistory').addEventListener('click', async () => {
   $('keepLocalCopy').checked = !!settings.keepLocalCopy;
   $('saveDir').value = settings.saveDir || '';
   syncOwnVisibility();
+}
+
+(async function init() {
+  settings = await window.puuush.getSettings();
+  await initHosts();
+  renderSettings();
   await loadHistory();
 })();

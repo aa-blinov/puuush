@@ -95,7 +95,19 @@ function pickRegion(image, display, scale) {
       });
     });
 
-    win.loadFile(path.join(__dirname, 'overlay.html'));
+    // Любой исход, кроме ответа из окна выбора, обязан вызывать finish.
+    // Если loadFile упадёт или окно почему-то не покажется, промис иначе
+    // повиснет навсегда, флаг busy в main не сбросится, и хоткей перестанет
+    // работать до перезапуска — молча, без единого сообщения.
+    win.loadFile(path.join(__dirname, 'overlay.html')).catch((e) => {
+      console.error('окно выбора не загрузилось:', e.message);
+      finish(null);
+    });
+
+    // Страховка от окна, которое загрузилось, но не нарисовалось: пользователь
+    // без него зависнет, хотя окно выбора на экране и не появится.
+    setTimeout(() => finish(null), 60_000).unref?.();
+
     win.once('ready-to-show', () => {
       win.show();
       win.focus();

@@ -23,23 +23,55 @@ function file(name) {
   return path.join(app.getPath('userData'), name);
 }
 
-function readJson(name, fallback) {
+/**
+ * Пишет файл атомарно: сначала рядом временный, потом переименование.
+ *
+ * fs.writeFileSync обрывается на середине, если диск кончился или выдернули
+ * питание. Тогда остаётся обрезанный JSON, который при следующем чтении тихо
+ * превращается в значения по умолчанию. Для настроек это особенно скверно:
+ * выбранный «только свой box» возвращался в «авто», и следующий скриншот
+ * уезжал на публичный catbox без всякого предупреждения.
+ */
+function writeJson(name, data) {
+  const target = file(name);
+  const tmp = `${target}.tmp`;
   try {
-    const raw = fs.readFileSync(file(name), 'utf8');
-    const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : fallback;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tmp, target);
+    return true;
   } catch (e) {
-    return fallback;
+    try {
+      fs.unlinkSync(tmp);
+    } catch (e2) {
+      /* временного файла могло не быть — не страшно */
+    }
+    return false;
   }
 }
 
-function writeJson(name, data) {
+/** Сработало ли в прошлый раз чтение файла, который оказался битым. */
+let corruptWarned = false;
+
+function readJson(name, fallback) {
+  let raw;
   try {
-    fs.mkdirSync(path.dirname(file(name)), { recursive: true });
-    fs.writeFileSync(file(name), JSON.stringify(data, null, 2), 'utf8');
-    return true;
+    raw = fs.readFileSync(file(name), 'utf8');
   } catch (e) {
-    return false;
+    return fallback;
+  }
+  if (!raw.trim()) return fallback;
+  try {
+    const data = JSON.parse(raw);
+    return data && typeof data === 'object' ? data : fallback;
+  } catch (e) {
+    // Молча откатываться нельзя: пользователь считает, что выбрал приватный
+    // режим, а на деле получил значения по умолчанию. Сообщаем один раз.
+    if (!corruptWarned) {
+      corruptWarned = true;
+      console.error(`Файл ${name} повреждён, беру значения по умолчанию: ${e.message}`);
+    }
+    return fallback;
   }
 }
 
@@ -53,10 +85,20 @@ function getSettings() {
   return merged;
 }
 
+/**
+ * Сохраняет настройки.
+ *
+ * Бросает исключение, если запись не удалась. Молча возвращать «успех» было
+ * опасно: окно настрочек показывало бы новое значение, а после перезапуска
+ * всё откатывалось бы назад, а режим приватности молча возвращался в «авто».
+ */
 function setSettings(patch) {
-  const next = { ...getSettings(), ...patch };
-  if (patch.own) next.own = { ...getSettings().own, ...patch.own };
-  writeJson('settings.json', next);
+  const current = getSettings();
+  const next = { ...current, ...patch };
+  if (patch.own) next.own = { ...current.own, ...patch.own };
+  if (!writeJson('settings.json', next)) {
+    throw new Error('не смог записать settings.json: нет прав или кончилось место');
+  }
   return next;
 }
 
@@ -82,6 +124,7 @@ function getHistory() {
 function addHistory(entry) {
   const list = getHistory();
   list.unshift({ at: Date.now(), ...entry });
+  // История вспомогательная: её потеря не должна ломать загрузку.
   writeJson('history.json', list.slice(0, HISTORY_LIMIT));
   return list.slice(0, HISTORY_LIMIT);
 }
