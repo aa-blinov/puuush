@@ -9,13 +9,17 @@ on:
   workflow_dispatch:
 
 permissions:
+  # Только чтение, и поэтому --publish never: при contents: read
+  # electron-builder при теге пытается создать GitHub Release и падает на
+  # 403 «Resource not accessible by integration». Релизы сейчас не нужны:
+  # без подписи автообновление всё равно молча не приедет, а ставить
+  # electron-updater без подписанной сборки бессмысленно.
   contents: read
 
 env:
   # Подписки на CI нет, поэтому говорим electron-builder не искать сертификаты:
   # без этого mac-сборка падает на попытке их найти.
   CSC_IDENTITY_AUTO_DISCOVERY: false
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   linux:
@@ -28,7 +32,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx electron-builder --linux
+      - run: npx electron-builder --linux --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: puuush-linux
@@ -46,7 +50,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx electron-builder --win
+      - run: npx electron-builder --win --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: puuush-windows
@@ -72,7 +76,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx electron-builder --mac --${{ matrix.arch }}
+      - run: npx electron-builder --mac --${{ matrix.arch }} --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: puuush-mac-${{ matrix.arch }}
