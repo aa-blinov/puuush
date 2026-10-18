@@ -488,8 +488,19 @@ async function handleRequest(req, res, cfg, limit) {
 
   try {
     // Открытый путь — только живость, для мониторинга.
-    if (req.method === 'GET' && path_ === '/v1/health') {
-      return json(res, 200, { ok: true, uptime: Math.floor((Date.now() - started) / 1000) });
+    // HEAD обрабатывается так же, как GET: мониторинги и балансировщики
+    // ходят именно HEAD, и раньше он уходил в проверку ключа и получал 401
+    // на живом сервисе.
+    if ((req.method === 'GET' || req.method === 'HEAD') && path_ === '/v1/health') {
+      const body = Buffer.from(JSON.stringify({
+        ok: true, uptime: Math.floor((Date.now() - started) / 1000),
+      }) + '\n');
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : body);
     }
 
     if (path_.startsWith('/v1/')) {

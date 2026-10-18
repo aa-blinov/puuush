@@ -683,3 +683,38 @@ test('уборка не трогает файлы моложе порога во
   assert.ok(fs.existsSync(d));
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('сервер: HEAD /v1/health открыт, как и GET', async () => {
+  // Мониторинги и балансировщики ходят именно HEAD. Раньше он уходил в
+  // проверку ключа и отвечал 401 на живом сервисе.
+  await withServer(async ({ base }) => {
+    const get = await fetch(`${base}/v1/health`);
+    assert.strictEqual(get.status, 200);
+
+    const head = await fetch(`${base}/v1/health`, { method: 'HEAD' });
+    assert.strictEqual(head.status, 200, 'HEAD на живость должен быть открыт');
+  });
+});
+
+test('сервер: HEAD на закрытом эндпоинте всё ещё требует ключ', async () => {
+  await withServer(async ({ base }) => {
+    const r = await fetch(`${base}/v1/info`, { method: 'HEAD' });
+    assert.strictEqual(r.status, 401);
+  });
+});
+
+test('параллельные загрузки не мешают друг другу', async () => {
+  await withServer(async ({ base }) => {
+    const auth = `Bearer ${'b'.repeat(64)}`;
+    const posts = [];
+    for (let i = 0; i < 10; i++) {
+      const form = new FormData();
+      form.append('file', new Blob([Buffer.from('файл-' + i)]), `f${i}.txt`);
+      posts.push(fetch(`${base}/v1/uploads`, { method: 'POST', headers: { Authorization: auth }, body: form }));
+    }
+    const results = await Promise.all(posts);
+    assert.ok(results.every((r) => r.status === 201), 'все загрузки должны пройти');
+    const ids = new Set((await Promise.all(results.map((r) => r.json()))).map((m) => m.id));
+    assert.strictEqual(ids.size, 10, 'id не должны повторяться при параллельной загрузке');
+  });
+});
