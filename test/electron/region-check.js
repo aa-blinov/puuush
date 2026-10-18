@@ -45,5 +45,71 @@ app.whenReady().then(async () => {
     results.push(await Promise.race([p, new Promise(r => setTimeout(() => r({ key, ok: false, val: 'ОТВЕТ НЕ ПРИШЁЛ за 8 секунд' }), 8000))]));
   }
   for (const r of results) console.log(`  ${r.ok ? 'ОК  ' : 'ПРОВАЛ'} ${r.key}: ${r.val}${r.ms ? ' (' + r.ms + ' мс)' : ''}`);
+
+  // Тонкое выделение не должно публиковать весь экран. Раньше и на mouseup,
+  // и на Enter стояла проверка «меньше 4 пикселей», и протяжка 2 на 500
+  // считалась кликом: человек тянул полоску, а улетал весь экран вместе с
+  // соседними окнами. Различие теперь по смещению мыши, а не по размеру рамки.
+  const W2 = 640, H2 = 480;
+  const frame2 = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  ).resize({ width: W2, height: H2 });
+  const thin = [
+    ['клик без смещения', [[200,150],[200,150]], W2, H2],
+    ['тонкая вертикальная 2x300', [[200,100],[202,400]], 2, 300],
+    ['тонкая горизонтальная 300x2', [[100,200],[400,202]], 300, 2],
+    ['обычная рамка', [[100,100],[300,250]], 200, 150],
+  ];
+  for (const [label, pts, wantW, wantH] of thin) {
+    const got = await new Promise((resolve) => {
+      let done = false;
+      const onRegion = (_e, v) => {
+        if (done) return;
+        done = true;
+        ipcMain.removeListener('puuush:region', onRegion);
+        w.destroy();
+        resolve(v);
+      };
+      const w = new BrowserWindow({
+        width: W2, height: H2, show: false, frame: false, transparent: true,
+        webPreferences: {
+          preload: path.join(SRC, 'preload-overlay.js'),
+          contextIsolation: true,
+        },
+      });
+      ipcMain.on('puuush:region', onRegion);
+      w.loadFile(path.join(SRC, 'overlay.html'));
+      w.once('ready-to-show', () => {
+        w.webContents.send('puuush:frame', { dataUrl: frame2.toDataURL(), width: W2, height: H2 });
+        setTimeout(async () => {
+          await w.webContents.executeJavaScript(`(function(){
+            const img=document.getElementById('shot');
+            const P=${JSON.stringify(pts)};
+            const nm=t=>({mouseDown:'mousedown',mouseMove:'mousemove',mouseUp:'mouseup'})[t];
+            const go=(t,p)=>(t==='mouseDown'?img:window).dispatchEvent(
+              new MouseEvent(nm(t),{clientX:p[0],clientY:p[1],button:0,bubbles:true,cancelable:true}));
+            go('mouseDown',P[0]); go('mouseMove',P[P.length-1]); go('mouseUp',P[P.length-1]);
+          })()`, true);
+          setTimeout(() => w.webContents.executeJavaScript(
+            "window.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))", true), 120);
+          setTimeout(() => {
+            if (done) return;
+            ipcMain.removeListener('puuush:region', onRegion);
+            w.destroy();
+            resolve(null);
+          }, 2500);
+        }, 400);
+      });
+    });
+    const ok = got && got.width === wantW && got.height === wantH;
+    results.push({ key: `тонкая рамка: ${label}`, ok,
+      val: got ? `${got.width}x${got.height}` : 'ответа не было' });
+  }
+
+  for (const r of results) {
+    if (String(r.key).startsWith('тонкая рамка')) {
+      console.log(`  ${r.ok ? 'ОК  ' : 'ПРОВАЛ'} ${r.key}: ${r.val}`);
+    }
+  }
   app.exit(results.every(r => r.ok) ? 0 : 1);
 });

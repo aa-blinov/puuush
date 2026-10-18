@@ -16,7 +16,11 @@ const err = document.getElementById('err');
 let W = 0;
 let H = 0;
 let start = null;
+let end = null;
 let box = null;
+// На сколько пикселей мышь должна сместиться, чтобы это считалось протяжкой,
+// а не кликом.
+const CLICK_SLOP = 4;
 
 // Три параметра, а не два: вызывается как clamp(значение, 0, W).
 // С лишним 0 посередине любая координата схлопывалась в ноль и рамку
@@ -51,6 +55,7 @@ shot.addEventListener('load', () => {
 shot.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   start = { x: clamp(e.clientX, 0, W), y: clamp(e.clientY, 0, H) };
+  end = { ...start };
   box = { ...start, width: 0, height: 0 };
   cut.style.display = 'block';
   paint();
@@ -60,6 +65,7 @@ window.addEventListener('mousemove', (e) => {
   if (!start) return;
   const x = clamp(e.clientX, 0, W);
   const y = clamp(e.clientY, 0, H);
+  end = { x, y };
   box = {
     x: Math.min(start.x, x),
     y: Math.min(start.y, y),
@@ -71,9 +77,13 @@ window.addEventListener('mousemove', (e) => {
 
 window.addEventListener('mouseup', () => {
   if (!start) return;
+  // Клик отличается от протяжки по тому, насколько сместилась мышь, а не по
+  // размеру получившейся рамки. Раньше проверялось второе, и тонкое выделение
+  // вроде 2 на 500 пикселей считалось кликом: человек тянул полоску, чтобы
+  // выхватить кусок текста, а улетал весь экран вместе с соседними окнами.
+  const moved = Math.hypot(end.x - start.x, end.y - start.y) >= CLICK_SLOP;
   start = null;
-  // Совсем маленький прямоугольник считаем промахом: скорее всего это клик.
-  if (box && (box.width < 4 || box.height < 4)) {
+  if (!moved) {
     confirm({ x: 0, y: 0, width: W, height: H });
     return;
   }
@@ -101,7 +111,11 @@ window.addEventListener('keydown', (e) => {
     window.puuush.submitRegion(null);
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    confirm(box && box.width >= 4 && box.height >= 4 ? box : { x: 0, y: 0, width: W, height: H });
+    // Рамку отправляем какой бы тонкой ни была: человек специально тянул,
+      // чтобы выхватить полоску в один или два пикселя. Раньше здесь стояла
+      // та же проверка размера, что и на mouseup, и Enter после тонкой
+      // протяжки отправлял весь экран вместе с соседними окнами.
+      confirm(box && box.width && box.height ? box : { x: 0, y: 0, width: W, height: H });
   } else if (e.key === ' ' && !start) {
     e.preventDefault();
     confirm({ x: 0, y: 0, width: W, height: H });
