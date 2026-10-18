@@ -23,7 +23,7 @@ const {
 } = require('electron');
 
 const store = require('./store');
-const { publish, HOSTS } = require('./upload');
+const { publish, HOSTS, request } = require('./upload');
 const { captureTo } = require('./capture');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
@@ -458,6 +458,33 @@ function registerIpc() {
   });
   handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, label: h.label, temp: h.temp })));
   handle('puuush:reapply-hotkey', () => applyHotkey());
+  handle('puuush:verify-server', async (_e, cfg) => {
+    const own = (cfg && cfg.base_url) ? cfg : (store.getSettings().own || {});
+    if (!own.base_url || !own.write_key) {
+      throw new Error('сервер или ключ не заполнены');
+    }
+    let res;
+    try {
+      res = await request(`${own.base_url.replace(/\/+$/, '')}/v1/ping`, {
+        headers: { Authorization: 'Bearer ' + own.write_key },
+        timeout: 10000,
+      });
+    } catch (e) {
+      // Причины отказа переводим в человеческие: человеку нужно знать, что
+      // делать, а не код сетевой ошибки.
+      if (e.code === 'ENOTFOUND') throw new Error('домен не найден');
+      if (e.code === 'ECONNREFUSED') throw new Error('сервер не отвечает');
+      if (e.code === 'CERT_HAS_EXPIRED') throw new Error('просрочен сертификат');
+      throw new Error(`сервер недоступен: ${e.message}`);
+    }
+    if (res.status === 401) throw new Error('сервер отверг ключ');
+    if (res.status !== 200) throw new Error(`сервер ответил ${res.status}`);
+    try {
+      return JSON.parse(res.body.toString('utf8'));
+    } catch (e) {
+      return { ok: true };
+    }
+  });
   handle('puuush:choose-file', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openFile'] });
     return r.canceled ? null : r.filePaths[0];

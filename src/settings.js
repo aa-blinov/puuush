@@ -53,7 +53,7 @@ function showBroken(reason) {
 
 /** Раскладывает настройки по полям. */
 function renderSettings() {
-  $('hotkey').value = settings.hotkey || '';
+  $('hotkey').value = prettyCombo(settings.hotkey);
   if ($('host').options.length) $('host').value = settings.host;
   $('ownUrl').value = (settings.own && settings.own.base_url) || '';
   $('ownKey').value = (settings.own && settings.own.write_key) || '';
@@ -99,6 +99,38 @@ function keyFromEvent(e) {
   return parts.join('+');
 }
 
+const SYMBOL = {
+  Command: '\u2318', Cmd: '\u2318', CommandOrControl: '\u2318', CmdOrCtrl: '\u2318',
+  Control: '^', Ctrl: '^', Alt: '\u2325', Option: '\u2325', AltGr: '\u2325', Shift: '\u2191',
+  Space: 'Space', Backspace: '\u232b',
+};
+
+/**
+ * Показывает хоткей так, как его записывают в этой системе.
+ *
+ * Символы ⌘ ⌥ ⇧ — это запись macOS. На Windows и Linux человек их не узнает,
+ * поэтому там остаются слова: Ctrl+Alt+K. Человек не должен гадать, во что
+ * превратится CommandOrControl.
+ */
+const MAC_SYMBOL = {
+  Command: '\u2318', Cmd: '\u2318', CommandOrControl: '\u2318', CmdOrCtrl: '\u2318',
+  Control: '\u2303', Ctrl: '\u2303', Alt: '\u2325', Option: '\u2325',
+  AltGr: '\u2325', Shift: '\u21e7', Space: 'Space', Backspace: '\u232b',
+};
+const WORD_NAME = {
+  CommandOrControl: 'Ctrl', CmdOrCtrl: 'Ctrl', Control: 'Ctrl', Ctrl: 'Ctrl',
+  Command: 'Meta', Cmd: 'Meta', Alt: 'Alt', Option: 'Alt', AltGr: 'AltGr',
+  Shift: 'Shift', Space: 'Space', Backspace: 'Backspace',
+};
+
+function prettyCombo(combo) {
+  const mac = window.puuush.platform === 'darwin';
+  return String(combo || '').split('+').map((k) => {
+    if (mac) return MAC_SYMBOL[k] || (k.length === 1 ? k.toUpperCase() : k);
+    return WORD_NAME[k] || (k.length === 1 ? k.toUpperCase() : k);
+  }).join(mac ? '' : '+');
+}
+
 function startListening() {
   listening = true;
   $('hotkey').classList.add('listening');
@@ -110,7 +142,7 @@ function stopListening() {
   if (!listening) return;
   listening = false;
   $('hotkey').classList.remove('listening');
-  $('hotkey').value = settings.hotkey || '';
+  $('hotkey').value = prettyCombo(settings.hotkey);
 }
 
 $('hotkey').addEventListener('click', startListening);
@@ -119,7 +151,7 @@ $('hotkey').addEventListener('focus', startListening);
 // висеть, хотя настройка не менялась.
 $('hotkey').addEventListener('blur', stopListening);
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', async (e) => {
   if (!listening) return;
   e.preventDefault();
   e.stopPropagation();
@@ -132,7 +164,7 @@ document.addEventListener('keydown', (e) => {
   if (!combo || !combo.includes('+')) return;
   settings.hotkey = combo;
   stopListening();
-  save({ hotkey: combo });
+  await save({ hotkey: combo });
   if (settings.hotkey !== combo) settings.hotkey = combo;
   renderSettings();
 });
@@ -159,15 +191,55 @@ function syncOwnVisibility() {
   $('ownBox').style.display = v === 'own' || v === 'auto' ? 'block' : 'none';
 }
 
+function serverState(text, kind) {
+  const el = $('serverState');
+  el.textContent = text || '';
+  el.className = text ? 'hint ' + (kind || '') : 'hint';
+}
+
+/** Где уйдёт следующий снимок: отвечает на вопрос, на который раньше
+    приходилось отвечать в уме, глядя в меню трея. */
+function showNextTarget() {
+  const host = $('host').value;
+  const el = $('nextTarget');
+  if (host === 'own') {
+    el.textContent = 'Следующий снимок уйдёт на свой сервер. Если он недоступен, загрузка не состоится.';
+  } else if (host === 'auto') {
+    el.textContent = 'Следующий снимок уйдёт на свой сервер, а если он недоступен — на внешний хостинг.';
+  } else {
+    const name = $('host').selectedOptions[0] ? $('host').selectedOptions[0].textContent : 'выбранный хостинг';
+    el.textContent = `Следующий снимок уйдёт на ${name}. Это публичный хостинг.`;
+  }
+}
+
+$('verifyServer').addEventListener('click', async () => {
+  serverState('проверяю…');
+  try {
+    const r = await window.puuush.verifyServer();
+    const mb = r && r.bytes ? Math.round(r.bytes / 1048576) : 0;
+    serverState(
+      `сервер отвечает, ключ подходит. На нём ${r && r.files != null ? r.files : '?'} файлов, ${mb} МБ.`,
+      'ok'
+    );
+  } catch (e) {
+    serverState(`сервер не настроен или не отвечает: ${e && e.message ? e.message : e}`, 'bad');
+  }
+});
+
 $('host').addEventListener('change', async () => {
   syncOwnVisibility();
+  showNextTarget();
   await save({ host: $('host').value });
 });
 
-$('ownUrl').addEventListener('change', () =>
-  save({ own: { base_url: $('ownUrl').value.trim() } }));
-$('ownKey').addEventListener('change', () =>
-  save({ own: { write_key: $('ownKey').value.trim() } }));
+$('ownUrl').addEventListener('change', async () => {
+  serverState('');
+  await save({ own: { base_url: $('ownUrl').value.trim() } });
+});
+$('ownKey').addEventListener('change', async () => {
+  serverState('');
+  await save({ own: { write_key: $('ownKey').value.trim() } });
+});
 
 // ---------------------------------------------------------------------------
 // Поведение
@@ -353,9 +425,9 @@ async function initHosts() {
     o.textContent = text;
     sel.appendChild(o);
   };
-  add('auto', 'авто: свой box, потом catbox, pomf2, uguu');
+  add('auto', 'авто: свой сервер, потом catbox, pomf2, uguu');
   for (const h of hosts) add(h.name, h.label);
-  add('own', 'только свой box — ничего не уходит наружу');
+  add('own', 'только свой сервер — ничего не уходит наружу');
 }
 
 (async function init() {

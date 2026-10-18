@@ -90,6 +90,8 @@
      выглядел бы сиротой и ломался бы при другой длине подписи. */
   .hint { color: var(--dim); font-size: 12px; margin: 6px 0 12px; }
   .hint:last-child { margin-bottom: 0; }
+  .hint.ok { color: #8ed3a8; }
+  .hint.bad { color: var(--bad); }
   .hint code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 11px; color: #b7bcc4;
@@ -183,6 +185,7 @@
       <select id="host" class="grow"></select>
       <span></span>
     </div>
+    <p class="hint" id="nextTarget"></p>
     <div id="ownBox">
       <div class="row">
         <label for="ownUrl">Свой сервер</label>
@@ -193,8 +196,9 @@
         <label for="ownKey">Ключ записи</label>
         <input type="password" id="ownKey" class="grow" autocomplete="off"
                spellcheck="false" placeholder="ключ, который выдал сервер">
-        <span></span>
+        <button id="verifyServer">Проверить</button>
       </div>
+      <p class="hint" id="serverState" role="status" aria-live="polite"></p>
       <p class="hint">
         Ключ уходит заголовком <code>POST /v1/uploads</code>, в ссылке и в логах
         сервера его нет. Если сервер недоступен, уходим во внешний хостинг.

@@ -410,7 +410,7 @@ async function publish(filePath, opts = {}) {
   );
 }
 
-module.exports = { publish, verify, safeName, HOSTS };
+module.exports = { publish, verify, safeName, HOSTS, request };
 
 // --- точки подмены для тестов -------------------------------------------------
 // Зовёт их только тест. Проверка на каждый запрос стоит одно сравнение

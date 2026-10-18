@@ -524,6 +524,20 @@ async function handleRequest(req, res, cfg, limit) {
       if (req.method === 'POST' && path_ === '/v1/uploads') {
         return await handleUpload(req, res, cfg);
       }
+      // Проверка «сервер вообще живой и ключ подходит» без записи файла.
+      // Нужна окну настроек: иначе неверный ключ обнаруживается только тем,
+      // что скриншот ушёл наружу.
+      if ((req.method === 'GET' || req.method === 'POST') && path_ === '/v1/ping') {
+        const u = await usage(cfg);
+        return json(res, 200, {
+          ok: true,
+          service: 'puuush-server',
+          uptime: Math.floor((Date.now() - started) / 1000),
+          files: u.count,
+          bytes: u.bytes,
+        });
+      }
+
       if (req.method === 'GET' && path_ === '/v1/info') {
         const u = await usage(cfg);
         return json(res, 200, {
