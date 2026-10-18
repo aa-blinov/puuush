@@ -74,12 +74,14 @@ document.addEventListener('keydown', (e) => {
     return stopListening();
   }
   const combo = keyFromEvent(e);
-  if (combo) {
-    $('hotkey').value = combo;
-    settings.hotkey = combo;
-    stopListening();
-    save({ hotkey: combo });
-  }
+  // Обязателен хотя бы один модификатор. Без него globalShortcut забирает
+  // клавишу у всех приложений сразу: Enter перестаёт работать везде, включая
+  // окно настроек, из которого его только что выбрали.
+  if (!combo || !combo.includes('+')) return;
+  $('hotkey').value = combo;
+  settings.hotkey = combo;
+  stopListening();
+  save({ hotkey: combo });
 });
 
 $('hotkeyApply').addEventListener('click', startListening);

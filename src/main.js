@@ -42,6 +42,23 @@ let tray = null;
  * Слепой случай, который честно не закрывается кодом: GNOME без расширения
  * AppIndicator. Шина DBus там есть, трея нет, проверка скажет «есть».
  */
+// Модификаторы в синтаксисе Electron. Проверка идёт по разбору строки, а не
+// регуляркой по началу: иначе «CommandOrControl+Shift+S» отсекается как
+// беспризнаковый, хотя модификатор там есть.
+const HOTKEY_MODIFIERS = new Set([
+  'command', 'cmd', 'control', 'ctrl', 'commandorcontrol', 'cmdorctrl',
+  'alt', 'option', 'altgr', 'shift', 'super', 'meta',
+]);
+
+function hasModifier(combo) {
+  const parts = String(combo || '').split('+').map((p) => p.trim().toLowerCase());
+  if (parts.length < 2) return false;
+  // Всё, кроме последнего элемента, обязано быть модификатором.
+  const last = parts[parts.length - 1];
+  if (!last) return false;
+  return parts.slice(0, -1).every((p) => HOTKEY_MODIFIERS.has(p));
+}
+
 function trayAvailable() {
   if (process.platform !== 'linux') return true;
   return !!(process.env.DBUS_SESSION_BUS_ADDRESS && process.env.XDG_CURRENT_DESKTOP);
@@ -151,7 +168,6 @@ function deliverToClipboard(url, what = 'ссылка') {
 
 async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) {
   const s = store.getSettings();
-  const wantedOwn = s.host === 'own' || (s.host === 'auto' && s.own && s.own.base_url);
   let ownFailed = null;
   try {
     notify('puuush', 'загружаю…');
@@ -360,6 +376,15 @@ function openSettings() {
 function applyHotkey() {
   const { hotkey } = store.getSettings();
   globalShortcut.unregisterAll();
+
+  // Хоткей без модификатора (просто «A» или «Enter») перехватывает клавишу у
+  // всех приложений сразу. Такое легко записать в поле настроек и поверить в
+  // это, поэтому отсекаем здесь, а не только в интерфейсе.
+  if (!hasModifier(hotkey)) {
+    notify('puuush', `«${hotkey}» без модификатора не подойдёт: он забьёт клавишу у всех приложений`);
+    return false;
+  }
+
   let ok = false;
   try {
     ok = globalShortcut.register(hotkey, shoot);
@@ -507,6 +532,16 @@ function checkRenderer(file, checkExpr) {
 // режет область, создаёт трей, занимает хоткей и заливает файл. Нужен на
 // сервере без монитора и после обновления Electron.
 // ---------------------------------------------------------------------------
+/** Крошечный настоящий PNG 1x1: проверяем загрузку без настоящего снимка экрана. */
+function png1px() {
+  return Buffer.from(
+    '89504e470d0a1a0a0000000d4948445200000001000000010806000000' +
+    '1f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd4' +
+    '0000000049454e44ae426082',
+    'hex'
+  );
+}
+
 async function runSelfTest() {
   const rows = [];
   const step = (ok, name, note) => rows.push({ ok, name, note });
@@ -526,13 +561,18 @@ async function runSelfTest() {
       width: Math.max(1, Math.round(size.width * 0.25)),
       height: Math.max(1, Math.round(size.height * 0.25)),
     });
+    // Режем кусок экрана, чтобы проверить сам механизм нарезки, но наружу
+    // его не отправляем: selftest обычно запускают в cron, и настоящий снимок
+    // экрана, улетающий на публичный хостинг по расписанию, это утечка, о
+    // которой README не говорит ни слова.
     const file = path.join(store.shotsDir(), 'selftest.png');
     fs.writeFileSync(file, cut.toPNG());
     step(fs.statSync(file).size > 0, 'нарезка и запись',
       `${cut.getSize().width}x${cut.getSize().height} -> ${file}`);
 
-    // Трея в системе может не быть вовсе. Это не повод ронять проверку целиком,
-    // поэтому падение трея — предупреждение, а не ошибка.
+    // Трея в системе может не быть вовсе. Падение трея считается ошибкой
+    // намеренно: без трея приложением нечем управлять, и cron-проверка
+    // должна показать это красным, а не тихо пройти.
     try {
       tray = new Tray(trayImage());
       buildTrayMenu();
@@ -544,8 +584,18 @@ async function runSelfTest() {
     const okHot = applyHotkey();
     step(okHot, 'хоткей', okHot ? `${s.hotkey} занят` : `${s.hotkey} занять не удалось`);
 
-    const r = await publish(file, { host: s.host, own: s.own, onStep: () => {} });
-    step(true, 'загрузка', `${r.url} (${r.host})`);
+    // Наружу уходит сгенерированная картинка 1x1, а не кусок экрана. Свой
+    // сервер настроен не всегда, а откат на catbox с настоящим снимком экрана
+    // внутри противоречит тому, ради чего приложение писалось.
+    const probeFile = path.join(store.shotsDir(), 'selftest-upload.png');
+    fs.writeFileSync(probeFile, png1px());
+    try {
+      const r = await publish(probeFile, { host: s.host, own: s.own, onStep: () => {} });
+      step(true, 'загрузка', `${r.url} (${r.host})`);
+    } finally {
+      try { fs.unlinkSync(probeFile); } catch (e) { /* не мешает */ }
+      try { fs.unlinkSync(file); } catch (e) { /* не мешает */ }
+    }
 
     const setErr = await checkRenderer('settings.html', `
       (function () {
@@ -626,6 +676,15 @@ if (cliIdx !== -1 || testIdx !== -1) {
 
     app.whenReady().then(() => {
       registerIpc();
+
+      // Настройки не прочитались. Молча брать значения по умолчанию нельзя:
+      // выбранный «только свой box» вернулся бы в «авто», и следующий
+      // скриншот ушёл бы на публичный хостинг вместо своего сервера.
+      const broken = store.brokenReason();
+      if (broken) {
+        noteError(broken);
+        notify('puuush', `${broken}\nВыбранный режим сброшен, проверь настройки.`);
+      }
 
       // Приложение живёт в трее. Трея в системе может не быть, и тогда ни
       // значка, ни меню, ни способа выйти. В таком случае держим окно настроек

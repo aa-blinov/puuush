@@ -50,14 +50,24 @@ function writeJson(name, data) {
   }
 }
 
-/** Сработало ли в прошлый раз чтение файла, который оказался битым. */
-let corruptWarned = false;
+/**
+ * Файл настроек не прочитался: битый JSON или нет прав.
+ *
+ * Молча брать значения по умолчанию опасно: пользователь выбрал «только свой
+ * box», чтобы скриншоты никуда не уходили наружу, а после перезапуска режим
+ * вернулся в «авто», и следующий снимок уехал на публичный catbox. Поэтому
+ * факт поломки запоминается, и клиент показывает его в трее и в окне настроек.
+ */
+let settingsBroken = null;
 
 function readJson(name, fallback) {
   let raw;
   try {
     raw = fs.readFileSync(file(name), 'utf8');
   } catch (e) {
+    if (e.code === 'ENOENT') return fallback; // файла ещё нет, это нормально
+    settingsBroken = `${name} не прочитался: ${e.code || e.message}`;
+    console.error(settingsBroken);
     return fallback;
   }
   if (!raw.trim()) return fallback;
@@ -65,14 +75,15 @@ function readJson(name, fallback) {
     const data = JSON.parse(raw);
     return data && typeof data === 'object' ? data : fallback;
   } catch (e) {
-    // Молча откатываться нельзя: пользователь считает, что выбрал приватный
-    // режим, а на деле получил значения по умолчанию. Сообщаем один раз.
-    if (!corruptWarned) {
-      corruptWarned = true;
-      console.error(`Файл ${name} повреждён, беру значения по умолчанию: ${e.message}`);
-    }
+    settingsBroken = `${name} повреждён: ${e.message}`;
+    console.error(settingsBroken);
     return fallback;
   }
+}
+
+/** Что сломалось в настройках, либо null, если всё в порядке. */
+function brokenReason() {
+  return settingsBroken;
 }
 
 const HOST_NAMES = ['auto', 'own', 'catbox', 'pomf2', 'uguu'];
@@ -135,6 +146,7 @@ function clearHistory() {
 
 module.exports = {
   DEFAULTS,
+  brokenReason,
   getSettings,
   setSettings,
   getHistory,

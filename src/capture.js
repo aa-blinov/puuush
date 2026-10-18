@@ -104,11 +104,18 @@ function pickRegion(image, display, scale) {
       finish(null);
     });
 
-    // Страховка от окна, которое загрузилось, но не нарисовалось: пользователь
-    // без него зависнет, хотя окно выбора на экране и не появится.
-    setTimeout(() => finish(null), 60_000).unref?.();
+    // Страховка от окна, которое загрузилось, но не нарисовалось. Её нужно
+    // снимать, как только окно показалось: иначе выделение, которое тянут
+    // дольше минуты, исчезает, и Enter после этого не делает ничего.
+    let guard = setTimeout(() => {
+      guard = null;
+      console.error('окно выбора не показалось за минуту, отменяю');
+      finish(null);
+    }, 60_000);
+    if (guard.unref) guard.unref();
 
     win.once('ready-to-show', () => {
+      if (guard) { clearTimeout(guard); guard = null; }
       win.show();
       win.focus();
       win.webContents.send('puuush:frame', {

@@ -14,6 +14,7 @@
 const https = require('node:https');
 const http = require('node:http');
 const fs = require('node:fs');
+const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
@@ -106,8 +107,29 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
         (res) => {
           const code = res.statusCode || 0;
           if (code >= 300 && code < 400 && res.headers.location && left > 0) {
+            // Запрос с ключом по редиректу не идём никогда: иначе Bearer
+            // уедет на чужой хост, который сам выбрал злоумышленник.
+            if (headers.Authorization) {
+              res.resume();
+              return reject(new Error(
+                'сервер ответил редиректом на другой адрес, запрос с ключом не повторяем'
+              ));
+            }
+            let next;
+            try {
+              next = new URL(res.headers.location, u).toString();
+            } catch (e) {
+              // Раньше эта ошибка бросалась из обработчика ответа и уносила
+              // процесс. Редирект на file:///etc/passname ронял процесс целиком.
+              res.resume();
+              return reject(new Error('сервер ответил редиректом на нечитаемый адрес'));
+            }
+            if (!/^https?:$/i.test(new URL(next).protocol)) {
+              res.resume();
+              return reject(new Error('сервер ответил редиректом на не-http адрес'));
+            }
             res.resume();
-            return send(new URL(res.headers.location, u).toString(), left - 1);
+            return send(next, left - 1);
           }
           // Тело склеивается целиком, поэтому потолок обязателен: без него
           // проверка ссылки на файле в сотни мегабайт съест столько же RAM.
@@ -160,6 +182,22 @@ async function uploadOwn(host, filePath, onStep = () => {}) {
   if (/[^\x21-\x7e]/.test(key)) {
     throw new Error('свой box: в ключе есть нелатинские символы или пробелы');
   }
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch (e) {
+    throw new Error('свой box: адрес нечитаемый');
+  }
+  if (!/^https:$/i.test(parsed.protocol)) {
+    // По http ключ летел бы открытым текстом. Локальный адрес — исключение,
+    // там TLS всё равно некуда вешать.
+    if (!/^https?$/i.test(parsed.protocol)) {
+      throw new Error('свой box: адрес должен быть http или https');
+    }
+    if (!/(^|\.)localhost$|^127\./.test(parsed.hostname)) {
+      throw new Error('свой box: нужен https, ключ не должен идти открытым текстом');
+    }
+  }
   const endpoint = base.replace(/\/+$/, '') + '/v1/uploads';
   const { body, contentType } = multipart({}, 'file', filePath, path.basename(filePath));
 
@@ -190,7 +228,7 @@ async function uploadOwn(host, filePath, onStep = () => {}) {
   if (!meta || typeof meta.url !== 'string') throw new Error('свой box: в ответе нет url');
 
   onStep('свой box: проверяю ссылку');
-  if (!(await verify(meta.url, fs.statSync(filePath).size))) {
+  if (!(await verify(meta.url, fs.statSync(filePath).size, filePath))) {
     throw new Error('свой box: ссылка не отдаёт файл');
   }
   return { url: meta.url, host: 'свой box', temp: false };
@@ -223,13 +261,48 @@ async function uploadTo(host, filePath) {
   return url;
 }
 
-/** Проверяет, что ссылка правда отдаёт файл, а не отдаёт 404 на пустом каталоге. */
-async function verify(url, size) {
+/**
+ * Проверяет, что ссылка правда отдаёт наш файл.
+ *
+ * Сверяются первые PROBE байт, а не размер. Размер сверять нельзя: чтобы его
+ * узнать, файл надо скачать целиком, а ссылка может вести на сотни мегабайт.
+ * Запрашивается только начало через Range, поэтому проверка стоит копейки и
+ * работает для файла любого размера.
+ *
+ * Раньше здесь стояло `res.body.length >= size / 2` при обрезанном до 2 МБ
+ * ответе, и любой файл тяжелее примерно 4 МБ объявлялся битым. Полноэкранный
+ * снимок на Retina столько весит легко, то есть полноэкранные скрины были
+ * сломаны полностью.
+ */
+const PROBE = 64;
+
+async function verify(url, size, filePath) {
+  let head;
   try {
-    const res = await request(url, { headers: { Accept: '*/*' }, timeout: 30000 });
-    if (res.status !== 200) return false;
-    if (!size) return true;
-    return res.body.length >= Math.floor(size / 2);
+    const fh = await fsp.open(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(PROBE);
+      const { bytesRead } = await fh.read(buf, 0, PROBE, 0);
+      head = buf.slice(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  } catch (e) {
+    head = null;
+  }
+
+  try {
+    const res = await request(url, {
+      headers: { Range: `bytes=0-${PROBE - 1}` },
+      timeout: 30000,
+    });
+    // 206 — сервер послушался Range, 200 — проигнорировал и отдал всё целиком.
+    if (res.status !== 200 && res.status !== 206) return false;
+    if (!res.body.length) return false;
+    if (!head) return true; // локальный файл недоступен: подтверждаем хотя бы код
+    const got = res.body.slice(0, head.length);
+    if (got.length !== head.length) return false;
+    return head.equals(got);
   } catch (e) {
     return false;
   }
@@ -319,7 +392,7 @@ async function publish(filePath, opts = {}) {
       continue;
     }
     onStep(`${h.name}: проверяю ссылку`);
-    if (!(await verify(url, size, maxBytes ? 2 * 1024 * 1024 : MAX_REPLY))) {
+    if (!(await verify(url, size, filePath))) {
       onStep(`${h.name}: ссылка не вывозит файл, иду дальше`);
       reasons.push(`${h.name} — ссылка не вывозит файл`);
       continue;
@@ -340,8 +413,8 @@ async function publish(filePath, opts = {}) {
 module.exports = { publish, verify, safeName, HOSTS };
 
 // --- точки подмены для тестов -------------------------------------------------
-// Живой код их не зовёт. Сеть в тестах не должна ходить в интернет, а список
-// хостингов должен быть предсказуемым, поэтому оба подменяются наружу.
+// Зовёт их только тест. Проверка на каждый запрос стоит одно сравнение
+// undefined, в горячем пути это заметить нельзя.
 // Возвращают предыдущее значение, чтобы тест восстановил его в finally.
 module.exports.__setRequestForTests = (fn) => {
   const prev = request;

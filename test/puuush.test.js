@@ -19,9 +19,9 @@ const crypto = require('node:crypto');
 
 const upload = require('../src/upload.js');
 
-// Заглушка файла для сетевых заглушек: publish сверяет половину размера,
-// поэтому тело должно быть не меньше реального файла.
-const FILE = Buffer.alloc(64, 0x41);
+// Проверка ссылки сверяет первые байты файла, поэтому заглушка обязана
+// отдавать именно их, а не что-то произвольное.
+const FILE = Buffer.from('данные');
 
 // ---------------------------------------------------------------------------
 // safeName: имя для ссылки и для диска
@@ -508,8 +508,9 @@ test('publish по умолчанию пропускает файл в пред�
   const file = path.join(dir, 'a.png');
   fs.writeFileSync(file, Buffer.alloc(64));
 
+  // Файл состоит из нулей, значит и ответ должен начинаться с нулей.
   const origRequest = upload.__setRequestForTests(async (url) => {
-    if (url === 'https://ok/3') return { status: 200, headers: {}, body: Buffer.alloc(64, 0x41) };
+    if (url === 'https://ok/3') return { status: 200, headers: {}, body: Buffer.alloc(64) };
     return { status: 200, headers: {}, body: Buffer.from(JSON.stringify({ files: [{ url: 'https://ok/3' }] })) };
   });
   const origHosts = upload.__setHostsForTests([
@@ -618,4 +619,60 @@ test('сервер: 500 не раскрывает путь файловой си
       fs.chmodSync(dir, 0o700);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Регрессии второго ревью (Claude CLI)
+// ---------------------------------------------------------------------------
+
+test('уборка удаляет самое старое, а не произвольное', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-sweep-'));
+  const srv = require('../server/index.js');
+  const cfg = {
+    dir, writeKey: 'k'.repeat(64), publicBase: 'https://x.test',
+    maxBytes: 1024, maxTotalBytes: 10 ** 12, maxFiles: 2, keepDays: 30,
+  };
+
+  // Пять файлов возрастом от 1 до 5 дней.
+  const ages = {};
+  for (const days of [5, 1, 3, 2, 4]) {
+    const id = crypto.randomBytes(12).toString('hex');
+    const d = path.join(dir, id);
+    fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, `f-${id}.txt`);
+    fs.writeFileSync(f, 'x');
+    const when = new Date(Date.now() - days * 86400e3);
+    fs.utimesSync(f, when, when);
+    ages[id] = days;
+  }
+
+  await srv.sweep(cfg);
+
+  const left = fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory()).map((e) => e.name);
+
+  assert.strictEqual(left.length, 2, `остаться должно 2 файла, осталось ${left.length}`);
+  const leftAges = left.map((id) => ages[id]).sort((a, b) => a - b);
+  assert.deepStrictEqual(leftAges, [1, 2],
+    'остаться должны самые свежие, а не первые попавшиеся');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('уборка не трогает файлы моложе порога возраста', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-sweep2-'));
+  const srv = require('../server/index.js');
+  const cfg = {
+    dir, writeKey: 'k'.repeat(64), publicBase: 'https://x.test',
+    maxBytes: 1024, maxTotalBytes: 10 ** 12, maxFiles: 100, keepDays: 30,
+  };
+  const id = crypto.randomBytes(12).toString('hex');
+  const d = path.join(dir, id);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'f.txt'), 'x');
+
+  const r = await srv.sweep(cfg);
+  assert.strictEqual(r.dropped, 0);
+  assert.ok(fs.existsSync(d));
+  fs.rmSync(dir, { recursive: true, force: true });
 });

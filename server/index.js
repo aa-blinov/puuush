@@ -178,16 +178,6 @@ function parseMultipart(buf, boundary) {
   return parts;
 }
 
-/** Разбирает Content-Disposition на filename*, как это присылают браузеры. */
-function filenameFromHeader(header) {
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(header || '');
-  if (star) {
-    try { return decodeURIComponent(star[1].trim()); } catch (e) { /* идём ниже */ }
-  }
-  const plain = /filename="([^"]*)"/i.exec(header || '');
-  return plain ? plain[1] : null;
-}
-
 // ---------------------------------------------------------------------------
 // Хранилище
 // ---------------------------------------------------------------------------
@@ -297,6 +287,11 @@ async function listUploads(cfg) {
  */
 async function sweep(cfg) {
   const files = await listUploads(cfg);
+  // Сортировка обязательна. listUploads отдаёт файлы в порядке readdir,
+  // то есть как вышло, и без неё уборка при переполнении квоты сносила
+  // произвольные файлы, включая только что загруженный. Ссылка, которую
+  // положили в буфер, после этого переставала работать.
+  files.sort((a, b) => a.mtime - b.mtime);
   let bytes = files.reduce((a, f) => a + f.size, 0);
 
   const cutoff = Date.now() - cfg.keepDays * 86400e3;
@@ -411,14 +406,18 @@ const EDGE_NET = /^172\.40\.\d+\.\d+$/;
 
 function clientIp(req) {
   const remote = req.socket.remoteAddress || 'unknown';
-  const fwd = req.headers['x-forwarded-for'];
   // Заголовок ставит прокси. Если соединение пришло не из сети edge, перед нами
-  // прямой клиент, и он волен написать в этот заголовок что угодно: лимит по
-  // нему тогда обходится простой ротацией значения. Поэтому верим заголовку
-  // только рядом с настоящим прокси.
-  if (EDGE_NET.test(remote) && typeof fwd === 'string' && fwd.length) {
-    return fwd.split(',')[0].trim();
-  }
+  // прямой клиент, и он волен написать в любой заголовок что угодно: лимит
+  // тогда обходится простой ротацией значения. Поэтому верим заголовки только
+  // рядом с настоящим прокси.
+  if (!EDGE_NET.test(remote)) return remote;
+
+  // Именно X-Real-IP, а не первый элемент X-Forwarded-For. Caddy дописывает
+  // свой адрес в конец XFF, поэтому клиентский, подделанный, остаётся
+  // первым: читать его означало бы доверять тому, что прислал атакующий.
+  // Сниппет proxy_headers перезаписывает X-Real-IP реальным адресом.
+  const rip = req.headers['x-real-ip'];
+  if (typeof rip === 'string' && rip.trim()) return rip.trim();
   return remote;
 }
 
@@ -457,84 +456,105 @@ async function handleUpload(req, res, cfg) {
 
 function createServer(cfg) {
   const limit = makeLimiter({ windowMs: 60_000, max: 30 });
-  return http.createServer(async (req, res) => {
-    const t0 = Date.now();
-    const url = new URL(req.url, 'http://localhost');
-    const path_ = decodeURIComponent(url.pathname);
-
-    res.on('finish', () => log(req, res.statusCode, Date.now() - t0));
-
-    try {
-      // Открытый путь — только живость, для мониторинга.
-      if (req.method === 'GET' && path_ === '/v1/health') {
-        return json(res, 200, { ok: true, uptime: Math.floor((Date.now() - started) / 1000) });
+  return http.createServer((req, res) => {
+    // Обёртка сделана намеренно. Раньше async-обработчик стоял напрямую, и
+    // любое исключение внутри него, включая URIError от битого процентного
+    // кодирования в пути, убивало процесс целиком: запрос `GET /%E0%A4%A`
+    // ронял сервер, за которым стоит ещё шесть проектов. Отклонённый промис
+    // никто не ловил.
+    handleRequest(req, res, cfg, limit).catch((e) => {
+      process.stderr.write(`обработчик упал: ${e.stack || e}\n`);
+      if (!res.headersSent) {
+        json(res, 500, { error: 'внутренняя ошибка сервера, подробности в его логе' });
+      } else {
+        res.end();
       }
+    });
+  });
+}
 
-      if (path_.startsWith('/v1/')) {
-        const ip = clientIp(req);
+async function handleRequest(req, res, cfg, limit) {
+  const t0 = Date.now();
+  res.on('finish', () => log(req, res.statusCode, Date.now() - t0));
 
-        // Лимит считаем по каждому неудачному ключу отдельно: нормальный
-        // клиент ошибается редко, а подбор ключа с одного адреса упирается в
-        // стену. Успешные запросы не штрафуем, иначе серия скриншотов
-        // за минуту упрётся в лимит.
-        if (!authOk(req, cfg)) {
-          const { count, over } = limit(ip);
-          if (over) {
-            return json(res, 429, {
-              error: `слишком много попыток без ключа (${count} за минуту), подожди`,
-            });
-          }
-          res.setHeader('WWW-Authenticate', 'Bearer realm="puuush"');
-          return json(res, 401, { error: 'нужен ключ: Authorization: Bearer <write_key>' });
-        }
+  let path_;
+  try {
+    // decodeURIComponent бросает URIError на неполной последовательности,
+    // например на «/%E0%A4%A». Это плохой запрос, а не сбой сервера.
+    path_ = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch (e) {
+    return json(res, 400, { error: 'нечитаемый путь запроса' });
+  }
 
-        if (req.method === 'POST' && path_ === '/v1/uploads') {
-          return await handleUpload(req, res, cfg);
-        }
-        if (req.method === 'GET' && path_ === '/v1/info') {
-          const u = await usage(cfg);
-          return json(res, 200, {
-            service: 'puuush-server',
-            dir: cfg.dir,
-            files: u.count,
-            bytes: u.bytes,
-            max_bytes: cfg.maxBytes,
-            max_total_bytes: cfg.maxTotalBytes,
-            max_files: cfg.maxFiles,
-            keep_days: cfg.keepDays,
+  try {
+    // Открытый путь — только живость, для мониторинга.
+    if (req.method === 'GET' && path_ === '/v1/health') {
+      return json(res, 200, { ok: true, uptime: Math.floor((Date.now() - started) / 1000) });
+    }
+
+    if (path_.startsWith('/v1/')) {
+      const ip = clientIp(req);
+
+      // Лимит считаем по каждому неудачному ключу отдельно: нормальный
+      // клиент ошибается редко, а подбор ключа с одного адреса упирается в
+      // стену. Успешные запросы не штрафуем, иначе серия скриншотов за минуту
+      // упрётся в лимит.
+      if (!authOk(req, cfg)) {
+        const { count, over } = limit(ip);
+        if (over) {
+          return json(res, 429, {
+            error: `слишком много попыток без ключа (${count} за минуту), подожди`,
           });
         }
-        const del = /^\/v1\/uploads\/([0-9a-f]{24})$/.exec(path_);
-        if (del && req.method === 'GET') {
-          const meta = await readMeta(cfg, del[1]);
-          return meta ? json(res, 200, meta) : json(res, 404, { error: 'не найдено' });
-        }
-        if (del && req.method === 'DELETE') {
-          const ok = await removeUpload(cfg, del[1]);
-          return ok ? json(res, 200, { deleted: del[1] })
-                    : json(res, 404, { error: 'не найдено' });
-        }
-        return json(res, 404, { error: 'нет такого метода' });
+        res.setHeader('WWW-Authenticate', 'Bearer realm="puuush"');
+        return json(res, 401, { error: 'нужен ключ: Authorization: Bearer <write_key>' });
       }
 
-      return json(res, 404, { error: 'файлы раздаёт веб-сервер, здесь только /v1/' });
-    } catch (e) {
-      if (e.tooLarge || e.code === 413) {
-        // Клиент может быть ещё в середине отправки — рвать соединение нельзя,
-        // иначе он не прочитает код ответа и решит, что сеть отвалилась.
-        res.setHeader('Connection', 'close');
-        return jsonAbort(res, 413, {
-          error: `файл больше лимита ${cfg.maxBytes} байт`,
+      if (req.method === 'POST' && path_ === '/v1/uploads') {
+        return await handleUpload(req, res, cfg);
+      }
+      if (req.method === 'GET' && path_ === '/v1/info') {
+        const u = await usage(cfg);
+        return json(res, 200, {
+          service: 'puuush-server',
+          dir: cfg.dir,
+          files: u.count,
+          bytes: u.bytes,
           max_bytes: cfg.maxBytes,
+          max_total_bytes: cfg.maxTotalBytes,
+          max_files: cfg.maxFiles,
+          keep_days: cfg.keepDays,
         });
       }
-      // Наружу нейтральный текст: сырое сообщение Node уносит в клиент
-      // абсолютный путь файловой системы и намекает на раскладку каталогов.
-      // Детали — только в свой лог.
-      process.stderr.write(`внутренняя ошибка: ${e.stack || e}\n`);
-      return json(res, 500, { error: 'внутренняя ошибка сервера, подробности в его логе' });
+      const del = /^\/v1\/uploads\/([0-9a-f]{24})$/.exec(path_);
+      if (del && req.method === 'GET') {
+        const meta = await readMeta(cfg, del[1]);
+        return meta ? json(res, 200, meta) : json(res, 404, { error: 'не найдено' });
+      }
+      if (del && req.method === 'DELETE') {
+        const ok = await removeUpload(cfg, del[1]);
+        return ok ? json(res, 200, { deleted: del[1] })
+                  : json(res, 404, { error: 'не найдено' });
+      }
+      return json(res, 404, { error: 'нет такого метода' });
     }
-  });
+
+    return json(res, 404, { error: 'файлы раздаёт веб-сервер, здесь только /v1/' });
+  } catch (e) {
+    if (e.tooLarge || e.code === 413) {
+      // Клиент может быть ещё в середине отправки. Рвать соединение нельзя,
+      // иначе он не прочитает код ответа и решит, что сеть отвалилась.
+      res.setHeader('Connection', 'close');
+      return jsonAbort(res, 413, {
+        error: `файл больше лимита ${cfg.maxBytes} байт`,
+        max_bytes: cfg.maxBytes,
+      });
+    }
+    // Наружу нейтральный текст: сырое сообщение Node уносит в клиент
+    // абсолютный путь файловой системы и намекает на раскладку каталогов.
+    process.stderr.write(`внутренняя ошибка: ${e.stack || e}\n`);
+    return json(res, 500, { error: 'внутренняя ошибка сервера, подробности в его логе' });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -569,5 +589,9 @@ if (require.main === module) {
     process.exit(1);
   });
 } else {
-  module.exports = { createServer, loadConfig, secretEquals, parseMultipart, safeName };
+  module.exports = {
+    createServer, loadConfig, secretEquals, parseMultipart, safeName,
+    // Наружу для тестов: уборку и перечисление файлов иначе нечем проверить.
+    sweep, listUploads, writeUpload, readMeta,
+  };
 }
