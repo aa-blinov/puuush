@@ -7,109 +7,135 @@
 <title>puuush</title>
 <style>
   :root {
-    --bg: #17181c;
-    --panel: #1f2126;
-    --line: #2e3138;
-    --text: #e8e9ec;
-    --dim: #9aa0aa;
+    --bg: #16171b;
+    --line: #282b31;
+    --line-soft: #212329;
+    --text: #e9eaed;
+    --dim: #949aa4;
     --accent: #4a9eff;
-    --ok: #58c98a;
-    --bad: #ff7a7a;
+    --bad: #d98a8a;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 22px 24px 28px;
+    padding: 20px 24px 32px;
     background: var(--bg);
     color: var(--text);
-    font: 13px/1.5 -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+    font: 13px/1.55 -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
   }
-  h1 { font-size: 17px; margin: 0 0 2px; }
-  .broken {
-    display: none;
-    margin: 14px 0 0;
-    padding: 12px 14px;
-    border: 1px solid #6b3030;
-    border-left-width: 3px;
-    border-radius: 8px;
-    background: #241a1a;
-    color: #ffd7d7;
+  h1 { font-size: 20px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); margin: 2px 0 0; }
+
+  /* Секции разделены волосяной линией и воздухом, а не рамками. */
+  section { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+  section:first-of-type { border-top: none; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+
+  /* Две колонки, а не фиксированная ширина подписи: длинные подписи
+     больше не переносятся по слогам. */
+  .row {
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
   }
-  .broken.show { display: block; }
-  .broken b { color: #ff9f9f; }
-  .broken span { display: block; color: #d8b8b8; font-size: 12px; margin: 3px 0 6px; }
-  h2 {
-    font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
-    color: var(--dim); margin: 26px 0 10px; font-weight: 600;
-  }
-  .sub { color: var(--dim); margin: 0 0 4px; }
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 16px 18px;
-  }
-  .row { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
-  .row:last-child { margin-bottom: 0; }
-  .row label { flex: 0 0 150px; color: var(--dim); }
-  .row .grow { flex: 1; min-width: 0; }
+  .row > label { color: var(--dim); }
+  .row > .grow { min-width: 0; }
+  .row.two { grid-template-columns: 168px minmax(0, 1fr) auto auto; }
+  .row.check { grid-template-columns: 168px auto; }
+
   input[type=text], input[type=password], select {
     width: 100%;
-    background: #121317;
+    background: #101115;
     border: 1px solid var(--line);
-    border-radius: 7px;
+    border-radius: 6px;
     color: var(--text);
     padding: 7px 10px;
     font: inherit;
   }
-  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input::placeholder { color: #6c727c; }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(74, 158, 255, .18);
+  }
   #hotkey {
-    flex: 1;
-    min-width: 240px;
     text-align: center;
     font-weight: 600;
-    font-family: ui-monospace, monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
-  #hotkey.listening { border-color: var(--accent); background: #10151d; }
+  #hotkey.listening { border-color: var(--accent); background: #0f141c; }
+
   button {
-    background: #262931;
+    background: #1e2026;
     border: 1px solid var(--line);
     color: var(--text);
-    border-radius: 7px;
+    border-radius: 6px;
     padding: 7px 13px;
     font: inherit;
     cursor: pointer;
     white-space: nowrap;
   }
-  button:hover { background: #2f333c; }
+  button:hover { background: #262930; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #07131f; font-weight: 600; }
-  button.primary:hover { filter: brightness(1.08); }
+  button.primary:hover { background: #6cb0ff; border-color: #6cb0ff; }
   button:disabled { opacity: .5; cursor: default; }
-  .check { display: flex; align-items: center; gap: 9px; }
-  .check input { width: 16px; height: 16px; accent-color: var(--accent); }
-  .hint { color: var(--dim); font-size: 12px; margin-top: 8px; }
+
+  input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+
+  /* Вспомогательный текст — на всю ширину. Отступ под колонку подписей
+     выглядел бы сиротой и ломался бы при другой длине подписи. */
+  .hint { color: var(--dim); font-size: 12px; margin: 6px 0 12px; }
+  .hint:last-child { margin-bottom: 0; }
+  .hint code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: #b7bcc4;
+  }
+
+  /* Предупреждение держится на рамке и весе текста, а не на цветной полосе
+     сбоку: такая полоса — самый узнаваемый след сгенерированного интерфейса. */
+  .broken {
+    display: none;
+    margin: 16px 0 0;
+    padding: 12px 14px;
+    border: 1px solid #46302f;
+    border-radius: 8px;
+    background: #1e1919;
+    color: #e7cfcd;
+  }
+  .broken.show { display: block; }
+  .broken b { font-weight: 600; color: var(--bad); }
+  .broken span { display: block; color: #c4a8a6; font-size: 12px; margin-top: 2px; }
+
   #status {
-    margin-top: 10px; padding: 9px 12px; border-radius: 7px;
-    font-family: ui-monospace, monospace; font-size: 12px;
-    background: #121317; border: 1px solid var(--line);
+    margin-top: 10px; padding: 8px 11px; border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    background: #101115; border: 1px solid var(--line);
     display: none; white-space: pre-wrap; word-break: break-all;
   }
   #status.show { display: block; }
-  #status.ok { border-color: #2f6b48; color: var(--ok); }
-  #status.bad { border-color: #6b3030; color: var(--bad); }
+  #status.ok { border-color: #2c5238; color: #8ed3a8; }
+  #status.bad { border-color: #4a2f2e; color: var(--bad); }
+
   #drop {
-    border: 1.5px dashed var(--line); border-radius: 9px;
-    padding: 22px; text-align: center; color: var(--dim);
+    border: 1px dashed var(--line); border-radius: 7px;
+    padding: 20px; text-align: center; color: var(--dim);
   }
-  #drop.over { border-color: var(--accent); background: #10151d; }
+  #drop.over { border-color: var(--accent); color: var(--text); }
+
   table { width: 100%; border-collapse: collapse; }
-  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
-  td.u { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; color: var(--dim); }
+  td.u {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; word-break: break-all; color: var(--dim); cursor: pointer;
+  }
+  td.u:hover { color: var(--text); }
   td.t { white-space: nowrap; color: var(--dim); font-size: 12px; }
-  .empty { color: var(--dim); text-align: center; padding: 18px; }
-  .foot { display: flex; gap: 10px; margin-top: 22px; }
-  .tag { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: #2a2e37; color: var(--dim); }
+  .empty { color: var(--dim); text-align: center; padding: 16px; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #23262c; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -120,89 +146,86 @@
     <b>Файл настроек не прочитан.</b>
     <span id="brokenWhy"></span>
     Показанные значения — по умолчанию. Если ты выбирал «только свой box»,
-    выбранный режим сброшен, и следующий снимок может уйти на публичный
-    хостинг. Открой этот раздел и сохрани настройки заново.
+    следующий снимок может уйти на публичный хостинг. Сохрани настройки заново.
   </div>
 
-  <h2>Горячая клавиша</h2>
-  <div class="card">
-    <div class="row">
+  <section>
+    <h2>Горячая клавиша</h2>
+    <div class="row two">
       <label>Снимок экрана</label>
-      <input type="text" id="hotkey" readonly spellcheck="false">
+      <input type="text" id="hotkey" class="grow" readonly spellcheck="false">
       <button id="hotkeyApply">Записать</button>
       <button id="hotkeyTest">Проверить</button>
     </div>
-    <div class="hint">
-      Нажми комбинацию прямо в это поле. Нужен хотя бы один модификатор:
-      <b>Command, Ctrl, Alt или Shift</b>. Голую клавишу приложение не примет,
-      она забьёт её у всех программ сразу. Esc или Backspace — сбросить.
-      Если клавиша уже занята другим приложением, путь один: поменяй её здесь.
-    </div>
-  </div>
+    <p class="hint">
+      Нужен хотя бы один модификатор: Command, Ctrl, Alt или Shift. Голую клавишу
+      приложение не примет, она забьёт её у всех программ.
+    </p>
+  </section>
 
-  <h2>Куда загружать</h2>
-  <div class="card">
+  <section>
+    <h2>Куда загружать</h2>
     <div class="row">
       <label>Хостинг</label>
       <select id="host" class="grow"></select>
+      <span></span>
     </div>
     <div id="ownBox">
       <div class="row">
         <label>Свой сервер</label>
         <input type="text" id="ownUrl" class="grow" placeholder="https://media.example.duckdns.org">
+        <span></span>
       </div>
       <div class="row">
         <label>Ключ записи</label>
         <input type="password" id="ownKey" class="grow" autocomplete="off"
                spellcheck="false" placeholder="ключ, который выдал сервер">
+        <span></span>
       </div>
-      <div class="hint">
-        Файл уходит на твой сервер по <code>POST /v1/uploads</code> с ключом в
-        заголовке — в ссылке и в логах сервера ключа нет. Ссылка не протухает
-        и не зависит от чужих сервисов. Если сервер недоступен или ключ отвергнут —
-        уходим во внешний хостинг, и тебе придёт уведомление с причиной.
-      </div>
+      <p class="hint">
+        Ключ уходит заголовком <code>POST /v1/uploads</code>, в ссылке и в логах
+        сервера его нет. Если сервер недоступен, уходим во внешний хостинг.
+      </p>
     </div>
-  </div>
+  </section>
 
-  <h2>Поведение</h2>
-  <div class="card">
-    <div class="row">
-      <label>Открывать ссылку в браузере</label>
+  <section>
+    <h2>Поведение</h2>
+    <div class="row check">
+      <label for="openAfterUpload">Открывать ссылку в браузере</label>
       <input type="checkbox" id="openAfterUpload">
     </div>
-    <div class="row">
-      <label>Хранить снимки на диске</label>
+    <div class="row check">
+      <label for="keepLocalCopy">Хранить снимки на диске</label>
       <input type="checkbox" id="keepLocalCopy">
-    </div>
-    <div class="hint" style="margin:-6px 0 14px 150px">
-      Выключено: снимок удаляется с диска и при успешной загрузке, и при
-      неудаче. Включено: остаётся в папке ниже, даже если загрузка сорвалась.
     </div>
     <div class="row">
       <label>Папка для скринов</label>
       <input type="text" id="saveDir" class="grow" placeholder="пусто = Pictures/puuush">
       <button id="saveDirPick">Выбрать…</button>
     </div>
-  </div>
+    <p class="hint">Выключено: снимок удаляется с диска и при неудаче загрузки тоже.</p>
+  </section>
 
-  <h2>Проверка загрузки</h2>
-  <div class="card">
-    <div id="drop">Перетащи файл сюда — загрузится и скопируется ссылка</div>
-    <div class="row" style="margin-top:14px">
+  <section>
+    <h2>Проверка загрузки</h2>
+    <div id="drop">Перетащи файл сюда, загрузится и скопируется ссылка</div>
+    <div class="row" style="margin-top:10px; grid-template-columns:auto 1fr auto">
       <button id="pickFile" class="primary">Выбрать файл…</button>
+      <span></span>
       <span class="tag" id="stateTag">готов</span>
     </div>
     <div id="status"></div>
-  </div>
+  </section>
 
-  <h2>История</h2>
-  <div class="card">
+  <section>
+    <h2>История</h2>
     <div id="history"><div class="empty">пусто</div></div>
-    <div class="foot" style="margin-top:12px">
+    <div class="row" style="margin-top:12px; grid-template-columns:auto 1fr">
       <button id="clearHistory">Очистить историю</button>
+      <span></span>
     </div>
-  </div>
+  </section>
 
   <script src="settings.js"></script>
 </body>
