@@ -235,7 +235,10 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
 
     const copied = deliverToClipboard(r.url);
     lastUpload = { url: r.url, host: r.host, at: Date.now() };
-    store.addHistory({ url: r.url, host: r.host, temp: r.temp, file: filePath, source });
+    store.addHistory({
+      url: r.url, host: r.host, temp: r.temp, file: filePath, source,
+      expiresAt: r.expiresAt || null,
+    });
     buildTrayMenu();
     notify('puuush', copied
       ? `${source}: ссылка в буфере\n${r.url}`

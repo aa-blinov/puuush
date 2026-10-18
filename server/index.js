@@ -134,8 +134,21 @@ function log(req, status, ms, extra = '') {
  * части. У бинарного файла такое совпадение вполне возможно.
  */
 function findBoundary(buf, delim, from) {
+  const atLineStart = (pos) => pos === 0 || (buf[pos - 2] === 0x0d && buf[pos - 1] === 0x0a);
   for (let pos = buf.indexOf(delim, from); pos !== -1; pos = buf.indexOf(delim, pos + 1)) {
-    if (pos === 0 || (buf[pos - 2] === 0x0d && buf[pos - 1] === 0x0a)) return pos;
+    if (!atLineStart(pos)) continue;
+    // Проверяем и окончание разделителя, а не только начало строки. Строка
+    // «--граница-дополнительно» внутри файла границей не является: раньше она
+    // ею считалась, и файл молча обрезался по ней.
+    const after = buf[pos + delim.length];
+    // обычная граница: «--граница» + перевод строки или конец буфера
+    if (after === 0x0d || after === 0x0a || pos + delim.length >= buf.length) return pos;
+    if (after === 0x2d && buf[pos + delim.length + 1] === 0x2d) {
+      // закрывающая граница: «--граница--», то есть ровно два дефиса после
+      // имени, и дальше перевод строки или конец буфера
+      const end2 = buf[pos + delim.length + 2];
+      if (end2 === 0x0d || end2 === 0x0a || pos + delim.length + 2 >= buf.length) return pos;
+    }
   }
   return -1;
 }
@@ -212,6 +225,10 @@ async function writeUpload(cfg, rawName, data, extra = {}) {
     sha256: crypto.createHash('sha256').update(data).digest('hex'),
     created: new Date().toISOString(),
     url: `${cfg.publicBase}/f/${id}/${encodeURIComponent(name)}`,
+    // Ссылка своего сервера не вечна: уборщик режет по возрасту и квоте.
+    // Раньше клиент подписывал её как постоянную, и человек рассчитывал на
+    // сохранность того, что исчезнет через месяц.
+    expires_at: new Date(Date.now() + cfg.keepDays * 86400e3).toISOString(),
     ...extra,
   };
 
@@ -230,6 +247,14 @@ async function writeUpload(cfg, rawName, data, extra = {}) {
       await fh.close();
     }
     await fsp.rename(tmp, final);
+
+    // Метаданные пишутся внутри той же операции. Раньше запись была после
+    // блока очистки: кончись место на meta.json, сервер отвечал 500, клиент
+    // уходил к другому хостингу, а файл уже лежал в публичном каталоге без
+    // метаданных, и удалить его через API было нечем.
+    const metaTmp = path.join(dir, '.meta.json.part');
+    await fsp.writeFile(metaTmp, JSON.stringify(meta, null, 2));
+    await fsp.rename(metaTmp, path.join(dir, 'meta.json'));
   } catch (e) {
     // Не оставляем после себя огрызок: кончился диск или кончились права.
     // Иначе мусор копится до следующей уборки и ест то самое место,
@@ -239,7 +264,6 @@ async function writeUpload(cfg, rawName, data, extra = {}) {
     err.cause = e;
     throw err;
   }
-  await fsp.writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
   return meta;
 }
 
@@ -305,7 +329,11 @@ async function sweep(cfg) {
       dropped++;
     }
   }
-  let over = Math.max(0, files.length - cfg.maxFiles);
+  // Из files.length уже вычтены те, что помечены deadDirs выше. Если этого
+  // не сделать, при 100 файлах, из которых 90 просрочены, и maxFiles = 50
+  // превышение считалось как 50, и уборщик сносил все оставшиеся свежие
+  // файлы, хотя квота давно освободилась.
+  let over = Math.max(0, (files.length - deadDirs.size) - cfg.maxFiles);
   let overBytes = Math.max(0, bytes - cfg.maxTotalBytes);
   for (const f of files) {
     if (over <= 0 && overBytes <= 0) break;

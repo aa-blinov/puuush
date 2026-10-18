@@ -418,8 +418,11 @@ function historyRow(item) {
   const when = new Date(item.at).toLocaleString('ru-RU', {
     day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
   });
-  tdT.textContent = `${item.source || item.host} · ${when} · ` +
-    (TEMP_LABEL[String(!!item.temp)] || '');
+  const life = item.temp
+    ? (TEMP_LABEL[String(!!item.temp)] || '')
+    : (item.expiresAt ? 'до ' + new Date(item.expiresAt).toLocaleDateString('ru-RU') : 'постоянно');
+  tdT.textContent = `${item.source || item.host} · ${when} · ${life}`;
+  if (item.expiresAt) tdT.title = `Сервер удалит файл ${when}`;
 
   const tdB = document.createElement('td');
   tdB.style.textAlign = 'right';

@@ -136,7 +136,12 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
           let size = 0;
           let done = false;
           const out = [];
-          const finish = (fn, arg) => { if (!done) { done = true; fn(arg); } };
+          const finish = (fn, arg) => {
+            if (done) return;
+            done = true;
+            clearTimeout(deadline);
+            fn(arg);
+          };
 
           res.on('data', (c) => {
             size += c.length;
@@ -159,6 +164,14 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
           });
         }
       );
+      // setTimeout ограничивает простой между пакетами, а не всю операцию:
+      // сервер, шлющий данные без пауз, держал бы нас вечно. Отдельный
+      // предельный таймер ограничивает длительность целиком.
+      const deadline = setTimeout(
+        () => req.destroy(new Error('превышено время ожидания')),
+        timeout
+      );
+      deadline.unref?.();
       req.setTimeout(timeout, () => req.destroy(new Error('превышено время ожидания')));
       req.on('error', reject);
       if (body) req.write(body);
@@ -254,7 +267,8 @@ async function uploadOwn(host, filePath, onStep = () => {}) {
   if (!(await verify(meta.url, fs.statSync(filePath).size, filePath))) {
     throw new Error('свой box: ссылка не отдаёт файл');
   }
-  return { url: meta.url, host: 'свой box', temp: false };
+  // Срок хранения приходит с сервера: ссылка своего сервера не вечна.
+  return { url: meta.url, host: 'свой box', temp: false, expiresAt: meta.expires_at || null };
 }
 
 /** Загрузка на один хостинг. */
@@ -436,7 +450,8 @@ async function publish(filePath, opts = {}) {
       reasons.push(`${h.name} — ссылка не вывозит файл`);
       continue;
     }
-    return { url, host: h.name, temp: !!h.temp, size };
+    return { url, host: h.name, temp: !!h.temp, size,
+             expiresAt: h.name === 'own' ? new Date(Date.now() + 30 * 86400e3).toISOString() : null };
   }
 
   if (single) {
@@ -456,12 +471,16 @@ module.exports = { publish, verify, safeName, HOSTS, request, validateOwn };
 // undefined, в горячем пути это заметить нельзя.
 // Возвращают предыдущее значение, чтобы тест восстановил его в finally.
 module.exports.__setRequestForTests = (fn) => {
-  const prev = request;
+  // Сохраняем именно текущую заглушку, а не обёртку request. Раньше
+  // сохранялась сама request, и после восстановления обёртка вызывала через
+  // __request саму себя: первый же настоящий запрос уходил в переполнение стека.
+  const prev = module.exports.__request;
   module.exports.__request = fn;
   return prev;
 };
 module.exports.__restoreRequestForTests = (prev) => {
-  module.exports.__request = prev;
+  if (prev === undefined) delete module.exports.__request;
+  else module.exports.__request = prev;
 };
 module.exports.__setHostsForTests = (list) => {
   const prev = HOSTS.slice();
