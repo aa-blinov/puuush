@@ -212,7 +212,13 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
       privacyDowngraded: !!(ownFailed && r.host !== 'свой box'),
     });
     if (s.openAfterUpload) shell.openExternal(r.url);
-    return r;
+    // Окно настроек читает copied и privacyDowngraded. Раньше наружу уходил
+    // результат publish(), где этих полей нет, и окно писало «скопировано»
+    // даже после системного диалога «буфер занят».
+    return {
+      url: r.url, host: r.host, temp: !!r.temp, size: r.size,
+      copied, privacyDowngraded: !!(ownFailed && r.host !== 'свой box'),
+    };
   } catch (e) {
     noteError(e.message);
     notify('puuush', 'не получилось: ' + e.message);
@@ -459,7 +465,9 @@ function registerIpc() {
   handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, label: h.label, temp: h.temp })));
   handle('puuush:reapply-hotkey', () => applyHotkey());
   handle('puuush:verify-server', async (_e, cfg) => {
-    const own = (cfg && cfg.base_url) ? cfg : (store.getSettings().own || {});
+    // Берём то, что человек видит в полях прямо сейчас. Поля сохраняются по
+    // уходу фокуса, поэтому клик по «Проверить» успевал проверить старый адрес.
+    const own = (cfg && cfg.base_url !== undefined) ? cfg : (store.getSettings().own || {});
     if (!own.base_url || !own.write_key) {
       throw new Error('сервер или ключ не заполнены');
     }
@@ -509,6 +517,10 @@ function registerIpc() {
     } catch (e) {
       discard(file);
       throw e;
+    } finally {
+      // То же правило, что и у снимка с хоткея: выключил «Хранить снимки» —
+      // файл не остаётся, независимо от исхода.
+      if (!store.getSettings().keepLocalCopy) discard(file);
     }
   });
   handle('puuush:upload-dropped', async (_e, p) => {

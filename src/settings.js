@@ -61,6 +61,7 @@ function renderSettings() {
   $('keepLocalCopy').checked = settings.keepLocalCopy !== false;
   $('saveDir').value = settings.saveDir || '';
   syncOwnVisibility();
+  showNextTarget();
 }
 
 async function save(patch) {
@@ -134,7 +135,7 @@ function prettyCombo(combo) {
 function startListening() {
   listening = true;
   $('hotkey').classList.add('listening');
-  $('hotkey').value = 'нажми комбинацию…';
+  $('hotkey').value = 'комбинация… Esc — отмена';
   $('hotkey').focus();
 }
 
@@ -153,6 +154,9 @@ $('hotkey').addEventListener('blur', stopListening);
 
 document.addEventListener('keydown', async (e) => {
   if (!listening) return;
+  // Tab должен уводить с поля. Раньше preventDefault срабатывал на любую
+  // клавишу, и из режима прослушивания нельзя было выйти с клавиатуры.
+  if (e.key === 'Tab') return stopListening();
   e.preventDefault();
   e.stopPropagation();
   if (e.key === 'Escape') return stopListening();
@@ -162,19 +166,26 @@ document.addEventListener('keydown', async (e) => {
   // клавишу у всех приложений сразу: Enter перестаёт работать везде, включая
   // это окно, из которого его только что выбрали.
   if (!combo || !combo.includes('+')) return;
-  settings.hotkey = combo;
   stopListening();
-  await save({ hotkey: combo });
-  if (settings.hotkey !== combo) settings.hotkey = combo;
+  const ok = await save({ hotkey: combo });
+  if (!ok) {
+    // save() при отказе перечитал настоящие настройки, но оптимистично
+    // присвоенное значение комбинации затирало их обратно: поле показывало
+    // комбинацию, которой на самом деле нет.
+    renderSettings();
+    return;
+  }
+  settings.hotkey = combo;
   renderSettings();
 });
 
 $('hotkeyTest').addEventListener('click', async () => {
   try {
     const ok = await window.puuush.reapplyHotkey();
+    const shown = prettyCombo(settings.hotkey);
     setStatus(
-      ok ? `хоткей ${settings.hotkey} занять удалось`
-         : `не удалось занять ${settings.hotkey}, его держит другая программа`,
+      ok ? `хоткей ${shown} занять удалось`
+         : `не удалось занять ${shown}, его держит другая программа`,
       ok ? 'ok' : 'bad'
     );
   } catch (e) {
@@ -212,13 +223,31 @@ function showNextTarget() {
   }
 }
 
+$('showKey').addEventListener('click', () => {
+  const el = $('ownKey');
+  const shown = el.type === 'password';
+  el.type = shown ? 'text' : 'password';
+  $('showKey').textContent = shown ? 'Скрыть' : 'Показать';
+  el.focus();
+});
+
 $('verifyServer').addEventListener('click', async () => {
   serverState('проверяю…');
+  const own = {
+    base_url: $('ownUrl').value.trim(),
+    write_key: $('ownKey').value.trim(),
+  };
+  // Сохраняем раньше проверки: поля пишутся по уходу фокуса, и без этого
+  // проверка ушла бы на старый адрес.
+  await save({ own });
   try {
-    const r = await window.puuush.verifyServer();
-    const mb = r && r.bytes ? Math.round(r.bytes / 1048576) : 0;
+    const r = await window.puuush.verifyServer(own);
+    const files = r && r.files != null ? r.files : null;
+    const mb = r && r.bytes != null ? Math.round(r.bytes / 1048576) : null;
     serverState(
-      `сервер отвечает, ключ подходит. На нём ${r && r.files != null ? r.files : '?'} файлов, ${mb} МБ.`,
+      files == null
+        ? 'сервер отвечает, ключ подходит.'
+        : `сервер отвечает, ключ подходит. На нём ${files} файлов, ${mb} МБ.`,
       'ok'
     );
   } catch (e) {
@@ -336,7 +365,10 @@ function historyRow(item) {
   // обрабатываем Enter и пробел.
   tdU.tabIndex = 0;
   tdU.setAttribute('role', 'button');
-  tdU.addEventListener('click', () => window.puuush.copyText(item.url));
+  tdU.addEventListener('click', () => {
+    window.puuush.copyText(item.url);
+    setStatus('ссылка скопирована', 'ok');
+  });
   tdU.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
@@ -346,8 +378,13 @@ function historyRow(item) {
 
   const tdT = document.createElement('td');
   tdT.className = 't';
-  tdT.textContent = `${item.host} · ${TEMP_LABEL[String(!!item.temp)] || ''}`;
-  tdT.title = new Date(item.at).toLocaleString('ru-RU');
+  // Имя файла и источник в истории уже есть: store их пишет. Через неделю
+  // человек узнаёт свою ссылку именно по ним, а не по голому адресу.
+  const when = new Date(item.at).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  tdT.textContent = `${item.source || item.host} · ${when}` +
+    (item.temp ? ' · временная' : '');
 
   const tdB = document.createElement('td');
   tdB.style.textAlign = 'right';
@@ -374,7 +411,7 @@ async function loadHistory() {
     return;
   }
   if (!list.length) {
-    box.innerHTML = '<div class="empty">пусто</div>';
+    box.innerHTML = '<div class="empty">пусто. Ссылки появятся здесь после первой загрузки.</div>';
     return;
   }
   box.innerHTML = '';
@@ -384,7 +421,12 @@ async function loadHistory() {
 $('clearHistory').addEventListener('click', async () => {
   // Удаление истории необратимо, а спрятано внизу окна.
   if (!window.confirm('Удалить всю историю ссылок?')) return;
-  await window.puuush.clearHistory();
+  clearStatus();
+  try {
+    await window.puuush.clearHistory();
+  } catch (e) {
+    fail(e && e.message ? e.message : 'историю очистить не удалось');
+  }
   loadHistory();
 });
 
@@ -394,7 +436,11 @@ $('clearHistory').addEventListener('click', async () => {
 
 window.puuush.onProgress((p) => {
   if (!p) return;
-  if (p.state === 'capturing') setStatus('снимаю экран…', 'busy');
+  if (p.state === 'step') {
+    // Главный процесс шлёт сюда человеческие причины («сервер отверг ключ»,
+    // «ссылка не вывозит файл»). Раньше они уходили в никуда.
+    if (p.message) setStatus(p.message, 'busy');
+  } else if (p.state === 'capturing') setStatus('снимаю экран…', 'busy');
   else if (p.state === 'captured') setStatus('вырезал область, загружаю…', 'busy');
   else if (p.state === 'error') fail(p.message);
   else if (p.state === 'done') {
@@ -425,7 +471,7 @@ async function initHosts() {
     o.textContent = text;
     sel.appendChild(o);
   };
-  add('auto', 'авто: свой сервер, потом catbox, pomf2, uguu');
+  add('auto', 'авто: свой сервер, потом ' + hosts.map((h) => h.name).join(', '));
   for (const h of hosts) add(h.name, h.label);
   add('own', 'только свой сервер — ничего не уходит наружу');
 }

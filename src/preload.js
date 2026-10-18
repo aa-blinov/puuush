@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('puuush', {
   clearHistory: () => ipcRenderer.invoke('puuush:clear-history'),
   hosts: () => ipcRenderer.invoke('puuush:hosts'),
   reapplyHotkey: () => ipcRenderer.invoke('puuush:reapply-hotkey'),
-  verifyServer: () => ipcRenderer.invoke('puuush:verify-server'),
+  verifyServer: (cfg) => ipcRenderer.invoke('puuush:verify-server', cfg),
 
   // --- файлы и загрузка ---
   chooseFile: () => ipcRenderer.invoke('puuush:choose-file'),
