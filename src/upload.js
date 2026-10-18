@@ -87,12 +87,12 @@ function multipart(fields, fileField, filePath, filename) {
 }
 
 /** HTTP(S) запрос с телом. Возвращает { status, headers, body }. Редиректы — вручную. */
-function request(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3, maxBytes = MAX_REPLY } = {}) {
+function request(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3, maxBytes = MAX_REPLY, stopAfter = 0 } = {}) {
   if (module.exports.__request) return module.exports.__request(url, { method, headers, body, timeout });
-  return realRequest(url, { method, headers, body, timeout, redirects, maxBytes });
+  return realRequest(url, { method, headers, body, timeout, redirects, maxBytes, stopAfter });
 }
 
-function realRequest(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3, maxBytes = MAX_REPLY } = {}) {
+function realRequest(url, { method = 'GET', headers = {}, body = null, timeout = 60000, redirects = 3, maxBytes = MAX_REPLY, stopAfter = 0 } = {}) {
   return new Promise((resolve, reject) => {
     const send = (target, left) => {
       let u;
@@ -145,12 +145,27 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
           };
 
           res.on('data', (c) => {
-            size += c.length;
-            if (size <= maxBytes) { out.push(c); return; }
-            // Достигнут лимит: продолжать качать незачем, соединение рвём.
-            // Раньше тело продолжало литься в сокет впустую.
-            finish(reject, Object.assign(new Error('ответ больше лимита'), { tooBig: true }));
-            res.destroy();
+            // Чанк может прийти целиком больше потолка: берём только нужную
+            // часть. Раньше не бралась ничего, и рабочая ссылка на большой файл
+            // объявлялась битой.
+            const room = maxBytes - out.length;
+            if (room > 0) out.push(c.length <= room ? c : c.slice(0, room));
+
+            if (stopAfter && out.length >= stopAfter) {
+              // Заголовки уже пришли, первых байт хватает. Досылать остальное
+              // незачем: сервер без Range льёт весь файл, а нужен только кусок.
+              finish(resolve, {
+                status: code, headers: res.headers, body: Buffer.concat(out),
+              });
+              res.destroy();
+              return;
+            }
+            if (out.length >= maxBytes) {
+              // Потолок достигнут и останавливать рано: продолжать качать
+              // незачем, соединение рвём.
+              finish(reject, Object.assign(new Error('ответ больше лимита'), { tooBig: true }));
+              res.destroy();
+            }
           });
           res.on('end', () => finish(resolve, {
             status: code, headers: res.headers, body: Buffer.concat(out),
@@ -354,6 +369,10 @@ async function verify(url, size, filePath) {
     const res = await request(url, {
       headers: { Range: `bytes=0-${PROBE - 1}` },
       timeout: 30000,
+      // Сервер может проигнорировать Range и прислать файл целиком. Он нам не
+      // нужен: проверяем первые байты и размер из заголовков.
+      stopAfter: PROBE + 64,
+      maxBytes: PROBE + 64,
     });
     // 206 — сервер послушался Range, 200 — проигнорировал и отдал всё целиком.
     if (res.status !== 200 && res.status !== 206) return false;

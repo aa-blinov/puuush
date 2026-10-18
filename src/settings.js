@@ -472,6 +472,17 @@ $('clearHistory').addEventListener('click', async () => {
 // Статусы из главного процесса
 // ---------------------------------------------------------------------------
 
+// Закрытие окна: кнопкой в шапке и обычным Ctrl+W / Cmd+W. Escape занят
+// записью хоткея и закрывать не должен.
+$('closeSelf').addEventListener('click', () => window.puuush.closeSelf());
+document.addEventListener('keydown', (e) => {
+  if (listening) return;
+  if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    window.puuush.closeSelf();
+  }
+});
+
 window.puuush.onProgress((p) => {
   if (!p) return;
   if (p.state === 'step') {

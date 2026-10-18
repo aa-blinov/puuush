@@ -25,6 +25,10 @@
   }
   h1 { font-size: 20px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
   .sub { color: var(--dim); margin: 2px 0 0; }
+  /* Шапка: заголовок слева, закрытие справа — окно должно быть чем закрыть,
+     в том числе с клавиатуры. Раньше его можно было закрыть только рамкой ОС. */
+  .head-row { display: flex; align-items: flex-start; gap: 12px; }
+  .head-row > div { flex: 1; min-width: 0; }
 
   /* Секции разделены волосяной линией и воздухом, а не рамками. */
   section { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
@@ -151,8 +155,13 @@
 </head>
 <body>
   <header>
-    <h1>puuush</h1>
-    <p class="sub">Настройки. Снимок области, загрузка, ссылка в буфере обмена.</p>
+    <div class="head-row">
+      <div>
+        <h1>puuush</h1>
+        <p class="sub">Настройки. Снимок области, загрузка, ссылка в буфере обмена.</p>
+      </div>
+      <button id="closeSelf" title="Закрыть окно (Ctrl+W)">Закрыть</button>
+    </div>
   </header>
 
   <div id="broken" class="broken">

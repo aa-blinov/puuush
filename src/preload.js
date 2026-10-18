@@ -35,7 +35,6 @@ contextBridge.exposeInMainWorld('puuush', {
   chooseFile: () => ipcRenderer.invoke('puuush:choose-file'),
   chooseDir: () => ipcRenderer.invoke('puuush:choose-dir'),
   uploadFile: (filePath) => ipcRenderer.invoke('puuush:upload-file', filePath),
-  uploadDropped: (filePath) => ipcRenderer.invoke('puuush:upload-dropped', filePath),
   uploadClipboardImage: () => ipcRenderer.invoke('puuush:upload-clipboard-image'),
   onProgress: (cb) => ipcRenderer.on('puuush:progress', (_e, payload) => cb(payload)),
 

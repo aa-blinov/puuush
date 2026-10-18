@@ -60,41 +60,56 @@ function writeJson(name, data) {
  */
 let settingsBroken = null;
 
-function readJson(name, fallback) {
+const SETTINGS_FILE = 'settings.json';
+
+/**
+ * Пометка о поломке ставится только файлу настроек.
+ *
+ * История читается тем же общим читателем JSON, и раньше проверка структуры
+ * ругалась на неё: история и есть массив. Из-за этого она всегда читалась
+ * пустой, а признак поломки настроек выставлялся историей — то есть любая
+ * загрузка блокировалась навсегда.
+ */
+function noteBroken(name, reason) {
+  console.error(`${name}: ${reason}`);
+  if (name === SETTINGS_FILE) settingsBroken = `${name} ${reason}`;
+}
+
+const validSettings = (d) =>
+  !!d && typeof d === 'object' && !Array.isArray(d) &&
+  (!d.host || HOST_NAMES.includes(d.host));
+
+const validHistory = (d) => Array.isArray(d);
+
+/** Читает JSON и проверяет структуру вызывающим: у настроек и истории она разная. */
+function readJson(name, fallback, validate) {
   let raw;
   try {
     raw = fs.readFileSync(file(name), 'utf8');
   } catch (e) {
     if (e.code === 'ENOENT') return fallback; // файла ещё нет, это нормально
-    settingsBroken = `${name} не прочитался: ${e.code || e.message}`;
-    console.error(settingsBroken);
+    noteBroken(name, `не прочитан: ${e.code || e.message}`);
     return fallback;
   }
-    // Пустой файл раньше молча превращался в значения по умолчанию: режим
-    // «только свой сервер» исчезал без следа, и следующий снимок уходил на
-    // публичный хостинг. Пустой файл — это поломка, а не отсутствие настроек.
-    if (!raw.trim()) {
-      settingsBroken = `${name} пуст`;
-      console.error(settingsBroken);
-      return fallback;
-    }
-    try {
-      const data = JSON.parse(raw);
-      // Массив, null или незнакомый режим хостинга тоже поломка: иначе
-      // приложение продолжит работать на молчаливых умолчаниях.
-      if (!data || typeof data !== 'object' || Array.isArray(data) ||
-          (data.host && !HOST_NAMES.includes(data.host))) {
-        settingsBroken = `${name} повреждён: неожиданная структура настроек`;
-        console.error(settingsBroken);
-        return fallback;
-      }
-      return data;
-    } catch (e) {
-      settingsBroken = `${name} повреждён: ${e.message}`;
-      console.error(settingsBroken);
-      return fallback;
-    }
+  // Пустой файл раньше молча превращался в значения по умолчанию: режим
+  // «только свой сервер» исчезал без следа. Пустой файл — поломка.
+  if (!raw.trim()) {
+    noteBroken(name, 'пуст');
+    return fallback;
   }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    noteBroken(name, `повреждён: ${e.message}`);
+    return fallback;
+  }
+  if (validate && !validate(data)) {
+    noteBroken(name, 'неожиданная структура');
+    return fallback;
+  }
+  return data;
+}
 
 /** Настройки снова записаны и читаются: поломка снята. */
 function clearBroken() {
@@ -109,7 +124,7 @@ function brokenReason() {
 const HOST_NAMES = ['auto', 'own', 'catbox', 'pomf2', 'uguu'];
 
 function getSettings() {
-  const saved = readJson('settings.json', {});
+  const saved = readJson('settings.json', {}, validSettings);
   const merged = { ...DEFAULTS, ...saved };
   merged.own = { ...DEFAULTS.own, ...(saved.own || {}) };
   if (!HOST_NAMES.includes(merged.host)) merged.host = 'auto';
@@ -148,7 +163,7 @@ function shotsDir() {
 }
 
 function getHistory() {
-  const h = readJson('history.json', []);
+  const h = readJson('history.json', [], validHistory);
   return Array.isArray(h) ? h : [];
 }
 

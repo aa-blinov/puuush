@@ -81,6 +81,15 @@ function runCli(argv) {
   const s = store.getSettings();
   (async () => {
     let code = 0;
+    // CLI шёл мимо защиты: при поломке настроек он отправлял файл публичному
+    // хостингу, тогда как окно в той же ситуации отказывало.
+    if (store.brokenReason()) {
+      process.stderr.write(
+        'puuush --cli: настройки не прочитаны, отправка заблокирована. ' +
+        'Почини settings.json и повтори.\n'
+      );
+      process.exit(2);
+    }
     for (const f of files) {
       try {
         const r = await publish(path.resolve(f), {
@@ -196,17 +205,20 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
   // перерисовку истории.
   if (uploading) throw new Error('предыдущая загрузка ещё идёт');
 
+  // Всё после установки флага обязано быть внутри try: отказ из-за
+  // непрочитанных настроек стоял между флагом и try, и сброс в catch был
+  // недостижим. Загрузка залипала навсегда даже после починки настроек.
   uploading = true;
-
-  // Сначала читаем настройки, потом смотрим на ошибку. Порядок был наоборот,
-  // и поломка, случившаяся уже после запуска, проходила мимо защиты: первый
-  // запуск уходил на публичный хостинг, и только следующий был заблокирован.
-  const s = store.getSettings();
-  if (store.brokenReason()) {
-    throw new Error('настройки не прочитаны, загрузка заблокирована. Открой настройки и сохрани их заново');
-  }
   let ownFailed = null;
   try {
+    // Сначала читаем настройки, потом смотрим на ошибку. Порядок был наоборот,
+    // и поломка, случившаяся уже после запуска, проходила мимо защиты: первый
+    // запуск уходил на публичный хостинг, и только следующий был заблокирован.
+    const s = store.getSettings();
+    if (store.brokenReason()) {
+      throw new Error('настройки не прочитаны, загрузка заблокирована. Открой настройки и сохрани их заново');
+    }
+
     notify('puuush', 'загружаю…');
     stage = 'загрузка';
     const r = await publish(filePath, {
@@ -586,10 +598,6 @@ function registerIpc() {
       // файл не остаётся, независимо от исхода.
       if (!store.getSettings().keepLocalCopy) discard(file);
     }
-  });
-  handle('puuush:upload-dropped', async (_e, p) => {
-    if (!p) return null;
-    return uploadAndDeliver(p, { source: path.basename(p) });
   });
   handle('puuush:close-self', () => {
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
