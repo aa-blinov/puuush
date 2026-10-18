@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { isIP } = require('node:net');
 
 // Браузерный заголовок обязателен: без него catbox отвечает отказом на запрос,
 // который не похож на браузерный, и ссылка выглядит битой.
@@ -199,6 +200,21 @@ function pick(obj, pathStr) {
  * попадает ни в access-лог Caddy, ни в ссылку.
  */
 /**
+ * Настоящий loopback.
+ *
+ * Прежняя проверка брала текст хоста, и через неё проходил домен вроде
+ * 127.attacker.example: ключ уходил по http чужому серверу целиком.
+ * Смотрим на тип адреса, а не на начало строки.
+ */
+function isLoopback(hostname) {
+  const h = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  if (h === 'localhost') return true; // точное имя, не my.localhost
+  if (isIP(h) === 4) return h.split('.')[0] === '127';
+  if (isIP(h) === 6) return h === '::1' || h === '::ffff:127.0.0.1';
+  return false;
+}
+
+/**
  * Проверяет адрес и ключ до сетевого вызова.
  * Возвращает строку с причиной или пустую строку, если всё в порядке.
  * Используется и загрузкой, и кнопкой «Проверить сервер» в окне настроек:
@@ -214,8 +230,9 @@ function validateOwn({ base_url: base, write_key: key } = {}) {
   }
   if (!/^https?:$/i.test(parsed.protocol)) return 'адрес должен быть http или https';
   // По http ключ летел бы открытым текстом. Локальный адрес — исключение,
-  // там TLS всё равно некуда вешать.
-  if (!/^https:$/i.test(parsed.protocol) && !/(^|\.)localhost$|^127\./.test(parsed.hostname)) {
+  // там TLS всё равно некуда вешать. Проверяем настоящий loopback, а не
+  // начало строки: через «127.» проходил домен 127.attacker.example.
+  if (!/^https:$/i.test(parsed.protocol) && !isLoopback(parsed.hostname)) {
     return 'нужен https, ключ не должен идти открытым текстом';
   }
   // Node бросает сырое «Invalid character in header content», если в
@@ -464,7 +481,7 @@ async function publish(filePath, opts = {}) {
   );
 }
 
-module.exports = { publish, verify, safeName, HOSTS, request, validateOwn };
+module.exports = { publish, verify, safeName, HOSTS, request, validateOwn, isLoopback };
 
 // --- точки подмены для тестов -------------------------------------------------
 // Зовёт их только тест. Проверка на каждый запрос стоит одно сравнение

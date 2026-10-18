@@ -70,16 +70,31 @@ function readJson(name, fallback) {
     console.error(settingsBroken);
     return fallback;
   }
-  if (!raw.trim()) return fallback;
-  try {
-    const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : fallback;
-  } catch (e) {
-    settingsBroken = `${name} повреждён: ${e.message}`;
-    console.error(settingsBroken);
-    return fallback;
+    // Пустой файл раньше молча превращался в значения по умолчанию: режим
+    // «только свой сервер» исчезал без следа, и следующий снимок уходил на
+    // публичный хостинг. Пустой файл — это поломка, а не отсутствие настроек.
+    if (!raw.trim()) {
+      settingsBroken = `${name} пуст`;
+      console.error(settingsBroken);
+      return fallback;
+    }
+    try {
+      const data = JSON.parse(raw);
+      // Массив, null или незнакомый режим хостинга тоже поломка: иначе
+      // приложение продолжит работать на молчаливых умолчаниях.
+      if (!data || typeof data !== 'object' || Array.isArray(data) ||
+          (data.host && !HOST_NAMES.includes(data.host))) {
+        settingsBroken = `${name} повреждён: неожиданная структура настроек`;
+        console.error(settingsBroken);
+        return fallback;
+      }
+      return data;
+    } catch (e) {
+      settingsBroken = `${name} повреждён: ${e.message}`;
+      console.error(settingsBroken);
+      return fallback;
+    }
   }
-}
 
 /** Настройки снова записаны и читаются: поломка снята. */
 function clearBroken() {
