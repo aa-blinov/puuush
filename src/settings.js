@@ -25,7 +25,7 @@ function setStatus(text, kind = '') {
   el.textContent = text || '';
   el.className = text ? 'show ' + kind : '';
   if (text) {
-    tag.textContent = kind === 'bad' ? 'ошибка' : (kind === 'ok' ? 'готово' : 'работаю');
+    tag.textContent = kind === 'bad' ? 'ошибка' : (kind === 'ok' ? 'принято' : 'работаю');
     tag.className = 'tag ' + (kind === 'bad' ? 'bad' : (kind === 'ok' ? 'ok' : 'busy'));
   } else {
     tag.textContent = 'готов';
@@ -228,6 +228,7 @@ $('showKey').addEventListener('click', () => {
   const shown = el.type === 'password';
   el.type = shown ? 'text' : 'password';
   $('showKey').textContent = shown ? 'Скрыть' : 'Показать';
+  $('showKey').setAttribute('aria-pressed', String(shown));
   el.focus();
 });
 
@@ -250,6 +251,7 @@ $('verifyServer').addEventListener('click', async () => {
         : `сервер отвечает, ключ подходит. На нём ${files} файлов, ${mb} МБ.`,
       'ok'
     );
+    $('broken').classList.remove('show');
   } catch (e) {
     serverState(`сервер не настроен или не отвечает: ${e && e.message ? e.message : e}`, 'bad');
   }
@@ -303,11 +305,16 @@ async function runUpload(label, run) {
       fail(`${label}: сервер не вернул ссылку`);
       return null;
     }
+    // Тот же разбор, что и в onProgress: ручные пути не должны быть мягче
+    // хоткей-пути. Раньше privacyDowngraded здесь просто игнорировался.
+    const downgraded = r.privacyDowngraded;
+    const head = downgraded
+      ? `внимание: свой сервер не сработал, файл ушёл на публичный ${r.host}`
+      : (r.copied === false ? 'буфер занят' : r.host);
     setStatus(
-      r.copied === false
-        ? `${r.url}\n\nбуфер занят, ссылка не скопирована, скопируй вручную`
-        : `${r.url}\n\n${r.host}${r.temp ? ', ссылка временная' : ''} — скопировано в буфер`,
-      r.copied === false ? 'bad' : 'ok'
+      `${r.url}\n\n${head}${r.temp ? ' · ссылка временная' : ''}` +
+      (r.copied === false ? ' — скопируй вручную' : ' — скопировано в буфер'),
+      r.copied === false || downgraded ? 'bad' : 'ok'
     );
     await loadHistory();
     return r;
@@ -381,10 +388,10 @@ function historyRow(item) {
   // Имя файла и источник в истории уже есть: store их пишет. Через неделю
   // человек узнаёт свою ссылку именно по ним, а не по голому адресу.
   const when = new Date(item.at).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
   });
-  tdT.textContent = `${item.source || item.host} · ${when}` +
-    (item.temp ? ' · временная' : '');
+  tdT.textContent = `${item.source || item.host} · ${when} · ` +
+    (TEMP_LABEL[String(!!item.temp)] || '');
 
   const tdB = document.createElement('td');
   tdB.style.textAlign = 'right';

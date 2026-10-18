@@ -81,6 +81,11 @@ function readJson(name, fallback) {
   }
 }
 
+/** Настройки снова записаны и читаются: поломка снята. */
+function clearBroken() {
+  settingsBroken = null;
+}
+
 /** Что сломалось в настройках, либо null, если всё в порядке. */
 function brokenReason() {
   return settingsBroken;
@@ -147,6 +152,7 @@ function clearHistory() {
 module.exports = {
   DEFAULTS,
   brokenReason,
+  clearBroken,
   getSettings,
   setSettings,
   getHistory,

@@ -444,8 +444,12 @@ function registerIpc() {
       try {
         return await fn(_e, arg);
       } catch (err) {
+        // Уведомляем и пробрасываем дальше, чтобы рендерер увидел отказ.
+        // Раньше здесь возвращался null: проверка сервера показывала зелёный
+        // ответ на любую ошибку, а сбой сохранения настроек выглядел как
+        // успех и ломал окно до перезапуска.
         notify('puuush', String(err && err.message ? err.message : err));
-        return null;
+        throw err;
       }
     });
   handle('puuush:get-settings', () => store.getSettings());

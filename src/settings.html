@@ -175,8 +175,8 @@
     <p class="hint" id="hotkeyHint">
       Нажми поле, потом комбинацию. Нужен хотя бы один модификатор: Command, Ctrl,
       Alt или Shift. Голую клавишу приложение не примет, она забьёт её у всех
-      программ. Изменение сохраняется само. Esc или Tab выходят из поля,
-      Backspace тоже.
+      программ. Изменение сохраняется само. Esc, Tab и Backspace выходят из поля,
+      ничего не стирая.
     </p>
   </section>
 
@@ -196,8 +196,8 @@
         <label for="ownKey">Ключ записи</label>
         <input type="password" id="ownKey" class="grow" autocomplete="off"
                spellcheck="false" placeholder="ключ, который выдал сервер">
-        <button id="showKey" title="Показать или скрыть ключ">Показать</button>
-        <button id="verifyServer">Проверить</button>
+        <button id="showKey" aria-pressed="false" title="Показать или скрыть ключ">Показать</button>
+        <button id="verifyServer">Проверить сервер</button>
       </div>
       <p class="hint" id="serverState" role="status" aria-live="polite"></p>
       <p class="hint">
@@ -243,7 +243,7 @@
 
   <section>
     <h2>История</h2>
-    <div id="history"><div class="empty">пусто</div></div>
+    <div id="history"><div class="empty">пусто. Ссылки появятся здесь после первой загрузки.</div></div>
     <div class="row plain" style="margin-top:12px; grid-template-columns:auto 1fr">
       <button id="clearHistory">Очистить историю</button>
     </div>
