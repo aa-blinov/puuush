@@ -470,6 +470,20 @@ function registerIpc() {
     if (!p) return null;
     return uploadAndDeliver(p, { source: path.basename(p) });
   });
+  handle('puuush:upload-clipboard-image', async () => {
+    // Тот же путь, что и пункт меню трея, но доступный из окна: продукт
+    // обещает три равноправных способа, а в настройках были видны два.
+    const img = nativeImage.readClipboardImage();
+    if (img.isEmpty()) throw new Error('в буфере обмена нет картинки');
+    const file = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
+    fs.writeFileSync(file, img.toPNG());
+    try {
+      return await uploadAndDeliver(file, { source: 'из буфера' });
+    } catch (e) {
+      discard(file);
+      throw e;
+    }
+  });
   handle('puuush:upload-dropped', async (_e, p) => {
     if (!p) return null;
     return uploadAndDeliver(p, { source: path.basename(p) });
@@ -669,7 +683,19 @@ const testIdx = process.argv.indexOf('--selftest');
 // области, проверочного) не должно его убивать. Без этого обработчика Electron
 // выходит сам, и вспомогательное окно не успевает отработать.
 app.on('window-all-closed', () => {});
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  // Второй запуск приложения проходит через app.quit() до готовности, и
+  // вызов globalShortcut на этом этапе бросает необработанное исключение:
+  // «globalShortcut cannot be used before the app is ready». Воспроизведено
+  // двойным запуском. Проверяем готовность перед обращением к API.
+  if (app.isReady()) {
+    try {
+      globalShortcut.unregisterAll();
+    } catch (e) {
+      /* снимать нечего, если ничего не занимали */
+    }
+  }
+});
 
 // Фоновая утилита в трее: упасть из-за чужого обработчика хуже, чем пережить
 // ошибку. Исключение из обработчика пункта меню приходит сюда при нативной
