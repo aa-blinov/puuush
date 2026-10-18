@@ -604,19 +604,26 @@ test('битый settings.json не откатывается молча', () => 
 test('сервер: 500 не раскрывает путь файловой системы', async () => {
   await withServer(async ({ base, dir }) => {
     const auth = { Authorization: `Bearer ${'b'.repeat(64)}` };
-    // Делаем хранилище недоступным для записи.
-    fs.chmodSync(dir, 0o500);
+    // Заменяем каталог хранилища файлом: mkdir упадёт с ENOTDIR, и мы получим
+    // именно ошибку записи. Прежний вариант с chmod 0500 проходил без единой
+    // проверки, когда тест запускали не от root: запись удавалась, статус был
+    // 201, и условие просто не выполнялось.
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.writeFileSync(dir, 'это файл, а не каталог');
     try {
       const form = new FormData();
       form.append('file', new Blob([Buffer.from('данные')]), 'a.txt');
       const res = await fetch(`${base}/v1/uploads`, { method: 'POST', headers: auth, body: form });
-      if (res.status !== 201) {
-        const body = await res.text();
-        assert.ok(!body.includes(dir), `ответ не должен содержать путь: ${body}`);
-        assert.ok(!body.includes('/tmp/'), 'ответ не должен содержать системные пути');
-      }
+      const body = await res.text();
+      assert.strictEqual(res.status, 500, `ждали 500, получили ${res.status}: ${body}`);
+      assert.ok(!body.includes(dir), `ответ не должен содержать путь: ${body}`);
+      assert.ok(!/"\/tmp\/|\/home\/|\/srv\//.test(body),
+        `ответ не должен содержать системные пути: ${body}`);
+      assert.ok(!/ENOTDIR|EACCES|ENOENT/.test(body),
+        `сырые коды ошибок Node утекать не должны: ${body}`);
     } finally {
-      fs.chmodSync(dir, 0o700);
+      fs.rmSync(dir, { force: true });
+      fs.mkdirSync(dir, { recursive: true });
     }
   });
 });

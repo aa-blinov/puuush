@@ -25,6 +25,19 @@
     font: 13px/1.5 -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
   }
   h1 { font-size: 17px; margin: 0 0 2px; }
+  .broken {
+    display: none;
+    margin: 14px 0 0;
+    padding: 12px 14px;
+    border: 1px solid #6b3030;
+    border-left-width: 3px;
+    border-radius: 8px;
+    background: #241a1a;
+    color: #ffd7d7;
+  }
+  .broken.show { display: block; }
+  .broken b { color: #ff9f9f; }
+  .broken span { display: block; color: #d8b8b8; font-size: 12px; margin: 3px 0 6px; }
   h2 {
     font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
     color: var(--dim); margin: 26px 0 10px; font-weight: 600;
@@ -103,6 +116,14 @@
   <h1>puuush</h1>
   <p class="sub">Снимок области, загрузка, ссылка в буфере обмена.</p>
 
+  <div id="broken" class="broken">
+    <b>Файл настроек не прочитан.</b>
+    <span id="brokenWhy"></span>
+    Показанные значения — по умолчанию. Если ты выбирал «только свой box»,
+    выбранный режим сброшен, и следующий снимок может уйти на публичный
+    хостинг. Открой этот раздел и сохрани настройки заново.
+  </div>
+
   <h2>Горячая клавиша</h2>
   <div class="card">
     <div class="row">
@@ -151,8 +172,12 @@
       <input type="checkbox" id="openAfterUpload">
     </div>
     <div class="row">
-      <label>Хранить локальные копии</label>
+      <label>Хранить снимки на диске</label>
       <input type="checkbox" id="keepLocalCopy">
+    </div>
+    <div class="hint" style="margin:-6px 0 14px 150px">
+      Выключено: снимок удаляется с диска и при успешной загрузке, и при
+      неудаче. Включено: остаётся в папке ниже, даже если загрузка сорвалась.
     </div>
     <div class="row">
       <label>Папка для скринов</label>

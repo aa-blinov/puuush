@@ -32,8 +32,20 @@ async function grabDisplay(display) {
     fetchWindowIcons: false,
   });
   if (!sources.length) throw new Error('не удалось получить список экранов');
-  const src =
-    sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+
+  // Ищем именно тот экран, где стоит курсор. Раньше при несовпадении
+  // брался sources[0], то есть первый попавшийся: на двух мониторах окно
+  // выбора открывалось на одном экране, а резался снимок другого. Молча.
+  const src = sources.find((s) => String(s.display_id) === String(display.id));
+  if (!src) {
+    const seen = sources.map((s) => s.display_id || '(пусто)').join(', ');
+    throw new Error(
+      `не нашёл экран ${display.id} среди источников (есть: ${seen}). ` +
+      'На двух мониторах это иногда значит, что снимок взялся бы не с того ' +
+      'экрана, где выбираешь область'
+    );
+  }
+
   const image = src.thumbnail;
   if (!image || image.isEmpty()) throw new Error('экран вернул пустой снимок');
   return { image, scale, size };

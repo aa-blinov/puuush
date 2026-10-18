@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('puuush', {
 
   // --- настройки и история ---
   getSettings: () => ipcRenderer.invoke('puuush:get-settings'),
+  brokenSettings: () => ipcRenderer.invoke('puuush:broken-settings'),
   saveSettings: (patch) => ipcRenderer.invoke('puuush:save-settings', patch),
   getHistory: () => ipcRenderer.invoke('puuush:get-history'),
   clearHistory: () => ipcRenderer.invoke('puuush:clear-history'),

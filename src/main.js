@@ -65,6 +65,7 @@ function trayAvailable() {
 }
 let settingsWin = null;
 let busy = false;
+let stage = 'съёмка'; // 'съёмка' или 'загрузка': для честного сообщения
 
 // ---------------------------------------------------------------------------
 // Режим командной строки: puuush --cli файл.png
@@ -171,6 +172,7 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
   let ownFailed = null;
   try {
     notify('puuush', 'загружаю…');
+    stage = 'загрузка';
     const r = await publish(filePath, {
       host: s.host,
       own: s.own,
@@ -228,12 +230,16 @@ function broadcast(channel, payload) {
 /** Снимок экрана -> область -> загрузка -> буфер. */
 async function shoot() {
   if (busy) {
-    // Нажатие во время съёмки: раньше оно просто игнорировалось, и выглядело
-    // как сломанный хоткей.
-    notify('puuush', 'предыдущий снимок ещё выбирается');
+    // Раньше нажатие просто игнорировалось, и это выглядело как сломанный
+    // хоткей. Флаг держится и на время загрузки, поэтому говорим точно, что
+    // происходит, а не всегда «выбирается».
+    notify('puuush', stage === 'загрузка'
+      ? 'предыдущий снимок ещё загружается'
+      : 'предыдущий снимок ещё выбирается, Esc отменяет');
     return;
   }
   busy = true;
+  stage = 'съёмка';
   broadcast('puuush:progress', { state: 'capturing' });
   try {
     const dir = store.shotsDir();
@@ -244,13 +250,13 @@ async function shoot() {
       width: shot.width,
       height: shot.height,
     });
-    await uploadAndDeliver(shot.path, { source: 'скриншот' });
-    if (!store.getSettings().keepLocalCopy) {
-      try {
-        fs.unlinkSync(shot.path);
-      } catch (e) {
-        /* файл уже могли унести, не страшно */
-      }
+    try {
+      await uploadAndDeliver(shot.path, { source: 'скриншот' });
+    } finally {
+      // Раньше копия удалялась только после успеха, и опция «хранить локальные
+      // копии» обещала больше, чем делала. Теперь правило одно для обоих
+      // случаев: выключена — удаляем всегда.
+      if (!store.getSettings().keepLocalCopy) discard(shot.path);
     }
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
@@ -258,6 +264,16 @@ async function shoot() {
     broadcast('puuush:progress', { state: 'error', message: msg });
   } finally {
     busy = false;
+    stage = 'съёмка';
+  }
+}
+
+/** Удаляет локальный снимок, не давая сбою затереть результат. */
+function discard(filePath) {
+  try {
+    fs.unlinkSync(filePath);
+  } catch (e) {
+    /* файла уже нет, это не ошибка */
   }
 }
 
@@ -335,7 +351,13 @@ function buildTrayMenu() {
           if (img.isEmpty()) return notify('puuush', 'в буфере нет картинки');
           const f = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
           fs.writeFileSync(f, img.toPNG());
-          await uploadAndDeliver(f, { source: 'из буфера' }).catch(() => {});
+          try {
+            await uploadAndDeliver(f, { source: 'из буфера' });
+          } catch (e) {
+            /* ссылка не вышла, но снимок пользователю ещё пригодится */
+          } finally {
+            if (!store.getSettings().keepLocalCopy) discard(f);
+          }
         },
       },
       { type: 'separator' },
@@ -421,6 +443,7 @@ function registerIpc() {
       }
     });
   handle('puuush:get-settings', () => store.getSettings());
+  handle('puuush:broken-settings', () => store.brokenReason());
   handle('puuush:save-settings', (_e, patch) => {
     const next = store.setSettings(patch || {});
     applyHotkey();

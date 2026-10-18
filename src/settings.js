@@ -261,6 +261,17 @@ function renderSettings() {
 }
 
 (async function init() {
+  // Настройки не прочитались: показываем это прямо здесь, а не только в трее.
+  // Иначе выбранный «только свой box» выглядит как включённый, а работает
+  // как «авто», и скриншот уезжает на публичный catbox.
+  try {
+    const broken = await window.puuush.brokenSettings();
+    if (broken) {
+      $('brokenWhy').textContent = broken;
+      $('broken').classList.add('show');
+    }
+  } catch (e) { /* канал мог не открыться, не критично */ }
+
   settings = await window.puuush.getSettings();
   await initHosts();
   renderSettings();
