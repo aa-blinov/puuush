@@ -23,7 +23,8 @@ const {
 } = require('electron');
 
 const store = require('./store');
-const { publish, HOSTS, request } = require('./upload');
+const upload = require('./upload');
+const { publish, HOSTS, request, validateOwn } = upload;
 const { captureTo } = require('./capture');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
@@ -167,7 +168,14 @@ function deliverToClipboard(url, what = 'ссылка') {
   return false;
 }
 
+let uploading = false;
+
 async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) {
+  // Раньше флаг защищал только снимок по хоткею: двойной клик «Выбрать файл…»
+  // запускал две загрузки, обе писали в одну строку статуса и обе дёргали
+  // перерисовку истории.
+  if (uploading) throw new Error('предыдущая загрузка ещё идёт');
+  uploading = true;
   const s = store.getSettings();
   let ownFailed = null;
   try {
@@ -212,6 +220,7 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
       privacyDowngraded: !!(ownFailed && r.host !== 'свой box'),
     });
     if (s.openAfterUpload) shell.openExternal(r.url);
+    uploading = false;
     // Окно настроек читает copied и privacyDowngraded. Раньше наружу уходил
     // результат publish(), где этих полей нет, и окно писало «скопировано»
     // даже после системного диалога «буфер занят».
@@ -222,6 +231,7 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
   } catch (e) {
     noteError(e.message);
     notify('puuush', 'не получилось: ' + e.message);
+    uploading = false;
     broadcast('puuush:progress', { state: 'error', message: e.message });
     throw e;
   }
@@ -456,9 +466,15 @@ function registerIpc() {
   handle('puuush:broken-settings', () => store.brokenReason());
   handle('puuush:save-settings', (_e, patch) => {
     const next = store.setSettings(patch || {});
-    applyHotkey();
+    // Файл снова читается и пишется, значит поломки больше нет: баннер в
+    // окне и строка об ошибке в трее не должны жить вечно после первого же
+    // сохранения. Функция была объявлена и нигде не вызывалась.
+    store.clearBroken();
+    // Если комбинацию держат другие, на диске лежит новая, а работает старая.
+    // Окну обязательно нужно знать, что сохранённое значение не применено.
+    const hotkeyApplied = applyHotkey();
     buildTrayMenu();
-    return next;
+    return hotkeyApplied ? next : { ...next, hotkeyApplied: false };
   });
   handle('puuush:get-history', () => store.getHistory());
   handle('puuush:clear-history', () => {
@@ -475,6 +491,11 @@ function registerIpc() {
     if (!own.base_url || !own.write_key) {
       throw new Error('сервер или ключ не заполнены');
     }
+    // Те же проверки, что и в настоящей загрузке. Без них кнопка показывала бы
+    // зелёный ответ там, где загрузка упала бы с «Invalid character in header
+    // content» или с требованием https.
+    const why = upload.validateOwn(own);
+    if (why) throw new Error(why);
     let res;
     try {
       res = await request(`${own.base_url.replace(/\/+$/, '')}/v1/ping`, {

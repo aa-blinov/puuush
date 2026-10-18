@@ -170,34 +170,42 @@ function pick(obj, pathStr) {
  * теперь принимает файлы по /v1/uploads с ключом в заголовке — так ключ не
  * попадает ни в access-лог Caddy, ни в ссылку.
  */
+/**
+ * Проверяет адрес и ключ до сетевого вызова.
+ * Возвращает строку с причиной или пустую строку, если всё в порядке.
+ * Используется и загрузкой, и кнопкой «Проверить сервер» в окне настроек:
+ * расхождение правил означало бы зелёную галочку там, где загрузка упадёт.
+ */
+function validateOwn({ base_url: base, write_key: key } = {}) {
+  if (!base || !key) return 'сервер или ключ не заполнены';
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch (e) {
+    return 'адрес нечитаемый';
+  }
+  if (!/^https?:$/i.test(parsed.protocol)) return 'адрес должен быть http или https';
+  // По http ключ летел бы открытым текстом. Локальный адрес — исключение,
+  // там TLS всё равно некуда вешать.
+  if (!/^https:$/i.test(parsed.protocol) && !/(^|\.)localhost$|^127\./.test(parsed.hostname)) {
+    return 'нужен https, ключ не должен идти открытым текстом';
+  }
+  // Node бросает сырое «Invalid character in header content», если в
+  // заголовок попал хоть один символ вне ASCII. Проверяем заранее.
+  if (/[^\x21-\x7e]/.test(key)) {
+    return 'в ключе есть нелатинские символы или пробелы';
+  }
+  return '';
+}
+
 async function uploadOwn(host, filePath, onStep = () => {}) {
   const { base_url: base, write_key: key } = host;
   if (!base || !key) {
     onStep('свой box: не настроен адрес или ключ');
     return null;
   }
-  // Node выбрасывает сырое «Invalid character in header content», если в
-  // заголовок попал хоть один нелатинский символ. Ловим это сами и говорим
-  // по-человечески, иначе в уведомление уедет нечитаемая ошибка Node.
-  if (/[^\x21-\x7e]/.test(key)) {
-    throw new Error('свой box: в ключе есть нелатинские символы или пробелы');
-  }
-  let parsed;
-  try {
-    parsed = new URL(base);
-  } catch (e) {
-    throw new Error('свой box: адрес нечитаемый');
-  }
-  if (!/^https:$/i.test(parsed.protocol)) {
-    // По http ключ летел бы открытым текстом. Локальный адрес — исключение,
-    // там TLS всё равно некуда вешать.
-    if (!/^https?$/i.test(parsed.protocol)) {
-      throw new Error('свой box: адрес должен быть http или https');
-    }
-    if (!/(^|\.)localhost$|^127\./.test(parsed.hostname)) {
-      throw new Error('свой box: нужен https, ключ не должен идти открытым текстом');
-    }
-  }
+  const why = validateOwn({ base_url: base, write_key: key });
+  if (why) throw new Error('свой box: ' + why);
   const endpoint = base.replace(/\/+$/, '') + '/v1/uploads';
   const { body, contentType } = multipart({}, 'file', filePath, path.basename(filePath));
 
@@ -410,7 +418,7 @@ async function publish(filePath, opts = {}) {
   );
 }
 
-module.exports = { publish, verify, safeName, HOSTS, request };
+module.exports = { publish, verify, safeName, HOSTS, request, validateOwn };
 
 // --- точки подмены для тестов -------------------------------------------------
 // Зовёт их только тест. Проверка на каждый запрос стоит одно сравнение

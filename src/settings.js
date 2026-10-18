@@ -168,6 +168,11 @@ document.addEventListener('keydown', async (e) => {
   if (!combo || !combo.includes('+')) return;
   stopListening();
   const ok = await save({ hotkey: combo });
+  if (ok && settings && settings.hotkeyApplied === false) {
+    // Записалось, но занять клавишу не вышло: в приложении работает старая
+    // комбинация, а поле показывало бы новую.
+    fail(`не удалось занять ${prettyCombo(combo)}, её держит другая программа`);
+  }
   if (!ok) {
     // save() при отказе перечитал настоящие настройки, но оптимистично
     // присвоенное значение комбинации затирало их обратно: поле показывало
@@ -213,14 +218,26 @@ function serverState(text, kind) {
 function showNextTarget() {
   const host = $('host').value;
   const el = $('nextTarget');
+  // Свою приватность обещать можно только когда сервер реально настроен.
+  // В режиме «авто» пустой сервер молча пропускается, и файл уходит на
+  // публичный хостинг — раньше здесь стояло «уйдёт на свой сервер», и на
+  // чистой установке это была ложь ровно в том месте, где продукт обещает
+  // человеку приватность.
+  const ownReady = Boolean($('ownUrl').value.trim() && $('ownKey').value.trim());
   if (host === 'own') {
-    el.textContent = 'Следующий снимок уйдёт на свой сервер. Если он недоступен, загрузка не состоится.';
+    el.textContent = ownReady
+      ? 'Следующий снимок уйдёт на свой сервер. Если он недоступен, загрузка не состоится.'
+      : 'Свой сервер не настроен: заполни адрес и ключ, иначе снимок не загрузится.';
   } else if (host === 'auto') {
-    el.textContent = 'Следующий снимок уйдёт на свой сервер, а если он недоступен — на внешний хостинг.';
+    el.textContent = ownReady
+      ? 'Следующий снимок уйдёт на свой сервер, а если он недоступен — на внешний хостинг.'
+      : 'Свой сервер не настроен, следующий снимок уйдёт на публичный внешний хостинг.';
   } else {
-    const name = $('host').selectedOptions[0] ? $('host').selectedOptions[0].textContent : 'выбранный хостинг';
-    el.textContent = `Следующий снимок уйдёт на ${name}. Это публичный хостинг.`;
-  }
+    const opt = $('host').selectedOptions[0];
+    // В подписи варианта уже есть «— постоянно», второй раз повторять не нужно.
+    const name = opt ? opt.textContent.split('—')[0].trim() : 'выбранный хостинг';
+    el.textContent = `Следующий снимок уйдёт на ${name}, это публичный хостинг.`;
+}
 }
 
 $('showKey').addEventListener('click', () => {
@@ -239,8 +256,12 @@ $('verifyServer').addEventListener('click', async () => {
     write_key: $('ownKey').value.trim(),
   };
   // Сохраняем раньше проверки: поля пишутся по уходу фокуса, и без этого
-  // проверка ушла бы на старый адрес.
-  await save({ own });
+  // проверка ушла бы на старый адрес. Отказ сохранения проверку отменяет,
+  // иначе рядом встанут зелёная и красная строки о разных вещах.
+  if (!(await save({ own }))) {
+    serverState('настройки не сохранились, проверка отменена', 'bad');
+    return;
+  }
   try {
     const r = await window.puuush.verifyServer(own);
     const files = r && r.files != null ? r.files : null;
@@ -263,13 +284,20 @@ $('host').addEventListener('change', async () => {
   await save({ host: $('host').value });
 });
 
+// Индикатор «куда уйдёт» должен отвечать на глазах, пока человек печатает,
+// а не только после ухода фокуса.
+$('ownUrl').addEventListener('input', showNextTarget);
+$('ownKey').addEventListener('input', showNextTarget);
+
 $('ownUrl').addEventListener('change', async () => {
   serverState('');
   await save({ own: { base_url: $('ownUrl').value.trim() } });
+  showNextTarget();
 });
 $('ownKey').addEventListener('change', async () => {
   serverState('');
   await save({ own: { write_key: $('ownKey').value.trim() } });
+  showNextTarget();
 });
 
 // ---------------------------------------------------------------------------
