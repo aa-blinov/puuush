@@ -48,14 +48,25 @@ async function grabDisplay(display) {
 
   const image = src.thumbnail;
   if (!image || image.isEmpty()) throw new Error('экран вернул пустой снимок');
-  return { image, scale, size };
+
+  // Масштаб берём не из display.scaleFactor, а из фактического размера кадра.
+  // Запрашиваемый размер и пришедший совпадают не всегда: на Linux с
+  // дробным масштабированием, на мониторе без честного HiDPI или когда
+  // композитор ужимает кадр, Electron отдаёт другое число. Если считать по
+  // запрошенному, рамка вырежет не то место, и это не видно нигде.
+  const got = image.getSize();
+  const ratio = {
+    x: got.width / (display.bounds.width || 1),
+    y: got.height / (display.bounds.height || 1),
+  };
+  return { image, ratio, size: got };
 }
 
 /**
  * Показывает окно выбора области и ждёт результат.
  * Возвращает прямоугольник в физических пикселях снимка или null при отмене.
  */
-function pickRegion(image, display, scale) {
+function pickRegion(image, display, ratio) {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       x: display.bounds.x,
@@ -100,10 +111,10 @@ function pickRegion(image, display, scale) {
     ipcOnce(win.webContents, 'puuush:region', (_e, rect) => {
       if (!rect) return finish(null);
       finish({
-        x: Math.max(0, Math.round(rect.x * scale)),
-        y: Math.max(0, Math.round(rect.y * scale)),
-        width: Math.max(1, Math.round(rect.width * scale)),
-        height: Math.max(1, Math.round(rect.height * scale)),
+        x: Math.max(0, Math.round(rect.x * ratio.x)),
+        y: Math.max(0, Math.round(rect.y * ratio.y)),
+        width: Math.max(1, Math.round(rect.width * ratio.x)),
+        height: Math.max(1, Math.round(rect.height * ratio.y)),
       });
     });
 
@@ -151,11 +162,12 @@ function ipcOnce(webContents, channel, handler) {
 /**
  * Полный захват: снимок -> выбор области -> резанный PNG на диске.
  * @returns {Promise<{path:string, width:number, height:number, scale:number}|null>}
+ *   scale в ответе — отношение физических пикселей кадра к логическим, см. grabDisplay.
  */
 async function captureTo(dir) {
   const display = displayUnderCursor();
-  const { image, scale } = await grabDisplay(display);
-  const rect = await pickRegion(image, display, scale);
+  const { image, ratio } = await grabDisplay(display);
+  const rect = await pickRegion(image, display, ratio);
   if (!rect) return null;
 
   const cut = image.crop(rect);
@@ -164,7 +176,7 @@ async function captureTo(dir) {
   const name = `shot-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`;
   const file = path.join(dir, name);
   fs.writeFileSync(file, cut.toPNG());
-  return { path: file, width: cut.getSize().width, height: cut.getSize().height, scale };
+  return { path: file, width: cut.getSize().width, height: cut.getSize().height, scale: ratio.x };
 }
 
 module.exports = { captureTo, grabDisplay, displayUnderCursor };

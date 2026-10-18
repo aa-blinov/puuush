@@ -574,9 +574,14 @@ async function runSelfTest() {
   try {
     const { grabDisplay, displayUnderCursor } = require('./capture');
     const display = displayUnderCursor();
-    const { image, scale } = await grabDisplay(display);
+    const { image, ratio } = await grabDisplay(display);
     const size = image.getSize();
-    step(true, 'захват экрана', `${size.width}x${size.height} px, scale ${scale}`);
+    // Пишем и запрошенный масштаб, и фактическое отношение: расхождение между
+    // ними — признак дробного масштабирования на Linux, и его полезно видеть.
+    const wanted = (display.scaleFactor || 1);
+    step(true, 'захват экрана',
+      `${size.width}x${size.height} px, кадр к окну ${ratio.x.toFixed(2)}x` +
+      (Math.abs(ratio.x - wanted) > 0.01 ? ` (заказывали scale ${wanted})` : ''));
 
     const cut = image.crop({
       x: Math.round(size.width * 0.1),
