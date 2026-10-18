@@ -44,6 +44,8 @@
   .row > .grow { min-width: 0; }
   /* Строки без правой кнопки не должны получать пустую третью колонку. */
   .row.plain { grid-template-columns: 168px minmax(0, 1fr); }
+  /* Две кнопки справа от поля: показать ключ и проверить сервер. */
+  .row.two { grid-template-columns: 168px minmax(0, 1fr) auto auto; }
   .row.check { grid-template-columns: 168px auto; }
 
   input[type=text], input[type=password], select {
@@ -190,7 +192,7 @@
         <label for="ownUrl">Свой сервер</label>
         <input type="text" id="ownUrl" class="grow" placeholder="https://media.example.duckdns.org">
       </div>
-      <div class="row">
+      <div class="row two">
         <label for="ownKey">Ключ записи</label>
         <input type="password" id="ownKey" class="grow" autocomplete="off"
                spellcheck="false" placeholder="ключ, который выдал сервер">
