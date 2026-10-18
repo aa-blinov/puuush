@@ -110,37 +110,43 @@ function notify(title, body) {
 /**
  * Кладёт ссылку в буфер, но никогда не теряет её из-за буфера.
  *
- * clipboard.writeText бросает исключение, если буфер занят другой программой
- * (на X11 и Wayland это случается) или если системного буфера обмена нет
- * вовсе. Файл к этому моменту уже залит, ссылка уже есть, терять её из-за
- * того, что не сработала вспомогательная удобность, нельзя. Поэтому при
- * отказе показываем ссылку окном и продолжаем.
+ * Проверять приходится не по факту исключения, а по чтению обратно. На X11 без
+ * менеджера буфера `writeText` отрабатывает без ошибки, а содержимое выделения
+ * тут же умирает: приложение сообщает «ссылка в буфере», а вставить нечего.
+ * На macOS и Windows такого нет, но проверка дешёвая и снимает целый класс
+ * «молча сломалось».
  */
 function deliverToClipboard(url, what = 'ссылка') {
+  let why = '';
   try {
     clipboard.writeText(url);
-    return true;
+    const back = clipboard.readText();
+    if (back !== url) why = 'буфер принял, но не отдаёт обратно';
   } catch (e) {
-    noteError('буфер занят, ' + what + ' ниже');
-    notify('puuush', `буфер занят, ${what} ниже\n${url}`);
-    dialog.showMessageBox({
-      type: 'warning',
-      message: 'Буфер обмена недоступен',
-      detail: `${url}\n\nСкопируй вручную. Причина: ${e.message}`,
-      buttons: ['Скопировать', 'Закрыть'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then(({ response }) => {
-      if (response === 0) {
-        try {
-          clipboard.writeText(url);
-        } catch (err) {
-          /* второй отказ: ссылка уже на экране, её можно выделить руками */
-        }
-      }
-    });
-    return false;
+    why = e.message;
   }
+
+  if (!why) return true;
+
+  noteError('буфер не сработал, ' + what + ' ниже');
+  notify('puuush', `буфер не сработал, ${what} ниже\n${url}`);
+  dialog.showMessageBox({
+    type: 'warning',
+    message: 'Буфер обмена недоступен',
+    detail: `${url}\n\nСкопируй вручную. Причина: ${why}`,
+    buttons: ['Скопировать', 'Закрыть'],
+    defaultId: 0,
+    cancelId: 1,
+  }).then(({ response }) => {
+    if (response === 0) {
+      try {
+        clipboard.writeText(url);
+      } catch (err) {
+        /* второй отказ: ссылка уже на экране, её можно выделить руками */
+      }
+    }
+  });
+  return false;
 }
 
 async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) {
