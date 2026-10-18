@@ -87,16 +87,19 @@ function pickRegion(image, display, ratio) {
       backgroundColor: '#00000000',
       enableLargerThanScreen: true,
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        // Не preload.js: окно выбора не должно видеть ключ и загрузку файлов.
+        preload: path.join(__dirname, 'preload-overlay.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
 
     let settled = false;
+    let offRegion = null;
     const finish = (value) => {
       if (settled) return;
       settled = true;
+      if (offRegion) offRegion();
       if (!win.isDestroyed()) win.destroy();
       resolve(value);
     };
@@ -108,7 +111,7 @@ function pickRegion(image, display, ratio) {
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
-    ipcOnce(win.webContents, 'puuush:region', (_e, rect) => {
+    offRegion = ipcOnce(win, 'puuush:region', (_e, rect) => {
       if (!rect) return finish(null);
       finish({
         x: Math.max(0, Math.round(rect.x * ratio.x)),
@@ -150,13 +153,37 @@ function pickRegion(image, display, ratio) {
   });
 }
 
-/** Одноразовая подписка на канал: renderer сам снимает слушателя после ответа. */
-function ipcOnce(webContents, channel, handler) {
-  const wrapped = (_e, payload) => {
-    webContents.removeListener(channel, wrapped);
-    handler(_e, payload);
-  };
-  webContents.on(channel, wrapped);
+/**
+ * Одноразовая подписка на ответ из окна выбора.
+ *
+ * Подписаться на webContents по имени канала нельзя: ipcRenderer.send()
+ * поднимает у webContents событие 'ipc-message', а не событие с именем канала.
+ * Проверено замером на установленном Electron: из трёх способов
+ * webContents.on('канал'), webContents.ipc.on('канал') и ipcMain.on('канал')
+ * срабатывают только два последних. Прежний вариант тихо не срабатывал никогда:
+ * Enter и Esc доходили, а finish() их не получал, окно висело, и флаг busy
+ * оставался навсегда.
+ */
+function ipcOnce(win, channel, handler) {
+  const ipc = win.webContents.ipc;
+  const off = typeof ipc && typeof ipc.on === 'function'
+    ? () => ipc.removeListener(channel, wrapped)
+    : () => win.webContents.removeListener('ipc-message', wrapped);
+  function wrapped(...args) {
+    off();
+    handler(...args);
+  }
+  if (typeof ipc === 'object' && typeof ipc.on === 'function') {
+    ipc.on(channel, wrapped);
+  } else {
+    // Запасной путь для версий без webContents.ipc: тот же контракт, но канал
+    // приходит вторым аргументом.
+    win.webContents.on('ipc-message', (_e, ch, ...rest) => {
+      if (ch !== channel) return;
+      wrapped(_e, ...rest);
+    });
+  }
+  return off;
 }
 
 /**

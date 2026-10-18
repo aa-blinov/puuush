@@ -134,14 +134,29 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
           // Тело склеивается целиком, поэтому потолок обязателен: без него
           // проверка ссылки на файле в сотни мегабайт съест столько же RAM.
           let size = 0;
+          let done = false;
           const out = [];
+          const finish = (fn, arg) => { if (!done) { done = true; fn(arg); } };
+
           res.on('data', (c) => {
             size += c.length;
-            if (size <= maxBytes) out.push(c);
+            if (size <= maxBytes) { out.push(c); return; }
+            // Достигнут лимит: продолжать качать незачем, соединение рвём.
+            // Раньше тело продолжало литься в сокет впустую.
+            finish(reject, Object.assign(new Error('ответ больше лимита'), { tooBig: true }));
+            res.destroy();
           });
-          res.on('end', () =>
-            resolve({ status: code, headers: res.headers, body: Buffer.concat(out) })
-          );
+          res.on('end', () => finish(resolve, {
+            status: code, headers: res.headers, body: Buffer.concat(out),
+          }));
+          res.on('error', (e) => finish(reject, e));
+          // Сервер объявил Content-Length и оборвал соединение после заголовков.
+          // Без этого обработчика событие end не наступает и промис живёт вечно:
+          // загрузка застревает, а флаги busy и uploading не сбрасываются.
+          res.on('aborted', () => finish(reject, new Error('соединение оборвано')));
+          res.on('close', () => {
+            if (!done) finish(reject, new Error('соединение закрыто раньше конца ответа'));
+          });
         }
       );
       req.setTimeout(timeout, () => req.destroy(new Error('превышено время ожидания')));
@@ -299,6 +314,11 @@ async function verify(url, size, filePath) {
     head = null;
   }
 
+  if (!head) {
+    // Локальный файл не прочитался: подтверждать нечем, доверять нечему.
+    return false;
+  }
+
   try {
     const res = await request(url, {
       headers: { Range: `bytes=0-${PROBE - 1}` },
@@ -307,10 +327,21 @@ async function verify(url, size, filePath) {
     // 206 — сервер послушался Range, 200 — проигнорировал и отдал всё целиком.
     if (res.status !== 200 && res.status !== 206) return false;
     if (!res.body.length) return false;
-    if (!head) return true; // локальный файл недоступен: подтверждаем хотя бы код
+
     const got = res.body.slice(0, head.length);
-    if (got.length !== head.length) return false;
-    return head.equals(got);
+    if (got.length !== head.length || !head.equals(got)) return false;
+
+    // Совпадения первых байт мало: сервер мог хранить только их, обрезав файл.
+    // Если сервер объявил полный размер, он обязан совпасть: 206 обязан нести
+    // Content-Range, обычный ответ — Content-Length. Если размера не объявлено
+    // вовсе (чанковый ответ), отказывать нельзя: ссылка может быть вполне
+    // рабочей, и обрывка ради заголовка тут нечего.
+    const cr = String(res.headers['content-range'] || '');
+    const m = /bytes 0-(\d+)\/(\d+)/.exec(cr);
+    if (m) return Number(m[2]) === size;
+    const cl = Number(res.headers['content-length']);
+    if (Number.isFinite(cl) && cl > 0) return cl === size;
+    return true;
   } catch (e) {
     return false;
   }

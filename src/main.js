@@ -168,6 +168,26 @@ function deliverToClipboard(url, what = 'ссылка') {
   return false;
 }
 
+/**
+ * Картинка из буфера обмена.
+ *
+ * В Electron 44 нет ни nativeImage.readClipboardImage, ни clipboard.readImage:
+ * есть has() и read() по имени формата. Прежний вызов падал с «is not a
+ * function», то есть кнопка «Картинка из буфера» не работала вообще.
+ */
+function clipboardImage() {
+  for (const format of ['image/png', 'image/jpeg', 'image/webp', 'image/bmp']) {
+    try {
+      if (!clipboard.has(format)) continue;
+      const buf = clipboard.read(format);
+      if (buf && buf.length) return nativeImage.createFromBuffer(buf);
+    } catch (e) {
+      // формат не поддержан системой, пробуем следующий
+    }
+  }
+  return null;
+}
+
 let uploading = false;
 
 async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) {
@@ -175,6 +195,15 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
   // запускал две загрузки, обе писали в одну строку статуса и обе дёргали
   // перерисовку истории.
   if (uploading) throw new Error('предыдущая загрузка ещё идёт');
+
+  // Настройки не прочитались: прежний режим «только свой сервер» потерян, а
+  // подставить умолчание означало бы отправить файл на публичный хостинг в
+  // обход ограничения, которое человек сам поставил. Отказываем.
+  const broken = store.brokenReason();
+  if (broken) {
+    throw new Error('настройки не прочитаны, загрузка заблокирована. Открой настройки и сохрани их заново');
+  }
+
   uploading = true;
   const s = store.getSettings();
   let ownFailed = null;
@@ -363,8 +392,8 @@ function buildTrayMenu() {
       {
         label: 'Скопировать файл из буфера',
         click: async () => {
-          const img = nativeImage.readClipboardImage();
-          if (img.isEmpty()) return notify('puuush', 'в буфере нет картинки');
+          const img = clipboardImage();
+          if (!img) return notify('puuush', 'в буфере нет картинки');
           const f = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
           fs.writeFileSync(f, img.toPNG());
           try {
@@ -512,11 +541,19 @@ function registerIpc() {
     }
     if (res.status === 401) throw new Error('сервер отверг ключ');
     if (res.status !== 200) throw new Error(`сервер ответил ${res.status}`);
+
+    // Любой 200 раньше считался успехом, включая HTML-заглушку прокси и
+    // чужой ответ с {ok:false}. Требуем ровно наш протокол.
+    let info;
     try {
-      return JSON.parse(res.body.toString('utf8'));
+      info = JSON.parse(res.body.toString('utf8'));
     } catch (e) {
-      return { ok: true };
+      throw new Error('по адресу отвечает не puuush-сервер');
     }
+    if (!info || info.service !== 'puuush-server' || info.ok !== true) {
+      throw new Error('по адресу отвечает не puuush-сервер');
+    }
+    return info;
   });
   handle('puuush:choose-file', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openFile'] });
@@ -533,8 +570,8 @@ function registerIpc() {
   handle('puuush:upload-clipboard-image', async () => {
     // Тот же путь, что и пункт меню трея, но доступный из окна: продукт
     // обещает три равноправных способа, а в настройках были видны два.
-    const img = nativeImage.readClipboardImage();
-    if (img.isEmpty()) throw new Error('в буфере обмена нет картинки');
+    const img = clipboardImage();
+    if (!img) throw new Error('в буфере обмена нет картинки');
     const file = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
     fs.writeFileSync(file, img.toPNG());
     try {
@@ -809,9 +846,9 @@ if (cliIdx !== -1 || testIdx !== -1) {
     app.whenReady().then(() => {
       registerIpc();
 
-      // Настройки не прочитались. Молча брать значения по умолчанию нельзя:
-      // выбранный «только свой box» вернулся бы в «авто», и следующий
-      // скриншот ушёл бы на публичный хостинг вместо своего сервера.
+      // Настройки читаем первыми: ошибка появляется именно при чтении файла,
+      // и запрос до него всегда давал пустоту.
+      store.getSettings();
       const broken = store.brokenReason();
       if (broken) {
         noteError(broken);

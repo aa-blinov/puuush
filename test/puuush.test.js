@@ -510,7 +510,7 @@ test('publish по умолчанию пропускает файл в пред�
 
   // Файл состоит из нулей, значит и ответ должен начинаться с нулей.
   const origRequest = upload.__setRequestForTests(async (url) => {
-    if (url === 'https://ok/3') return { status: 200, headers: {}, body: Buffer.alloc(64) };
+    if (url === 'https://ok/3') return { status: 200, headers: { 'content-length': '64' }, body: Buffer.alloc(64) };
     return { status: 200, headers: {}, body: Buffer.from(JSON.stringify({ files: [{ url: 'https://ok/3' }] })) };
   });
   const origHosts = upload.__setHostsForTests([
