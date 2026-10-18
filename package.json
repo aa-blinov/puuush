@@ -17,8 +17,8 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
-    "test": "node --test test/puuush.test.js",
-    "check": "node --test test/puuush.test.js && node --check src/main.js && node --check src/upload.js && node --check server/index.js",
+    "test": "node --test test/puuush.test.js test/regressions.test.js",
+    "check": "node --test test/puuush.test.js test/regressions.test.js && node --check src/main.js && node --check src/upload.js && node --check server/index.js",
     "test:electron": "electron test/electron/region-check.js"
   },
   "build": {
