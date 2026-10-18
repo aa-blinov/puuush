@@ -8,8 +8,8 @@
 <style>
   :root {
     --bg: #16171b;
-    --line: #282b31;
-    --line-soft: #212329;
+    --line: #5f6673; /* 3.27:1 на поле, 3.10:1 на фоне: WCAG 1.4.11 */
+    --line-soft: #212329; /* разделитель, правило 1.4.11 не применяется */
     --text: #e9eaed;
     --dim: #949aa4;
     --accent: #4a9eff;
@@ -57,7 +57,7 @@
     padding: 7px 10px;
     font: inherit;
   }
-  /* 5.1:1. Прежние #6c727c давали 3.90:1, ниже порога AA. */
+  /* 5.42:1 к фону поля. Прежние #6c727c давали 3.90:1, ниже порога AA. */
   input::placeholder { color: #838a94; }
   input:focus, select:focus {
     outline: none;
@@ -106,7 +106,7 @@
     display: none;
     margin: 16px 0 0;
     padding: 12px 14px;
-    border: 1px solid #46302f;
+    border: 1px solid #a35555; /* 3.40:1 */
     border-radius: 8px;
     background: #1e1919;
     color: #e7cfcd;
@@ -122,8 +122,8 @@
     display: none; white-space: pre-wrap; word-break: break-all;
   }
   #status.show { display: block; }
-  #status.ok { border-color: #2c5238; color: #8ed3a8; }
-  #status.bad { border-color: #4a2f2e; color: var(--bad); }
+  #status.ok { border-color: #468b62; /* 4.61:1 */ color: #8ed3a8; }
+  #status.bad { border-color: #a05a5a; /* 3.69:1 */ color: var(--bad); }
 
   #drop {
     border: 1px dashed var(--line); border-radius: 7px;
