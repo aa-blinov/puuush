@@ -1,0 +1,13 @@
+# Сервер puuush в контейнере. Запуск: docker compose up -d --build
+# Порт слушает только localhost. Наружу его отдаёт reverse proxy с HTTPS (см. README).
+services:
+  puuush-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8099:8099"
+    volumes:
+      # конфиг с write_key, только чтение
+      - ./config.json:/srv/puuush-server/config.json:ro
+      # файлы: пишет сервер, читает Caddy с хоста
+      - ./media:/srv/media

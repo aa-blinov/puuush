@@ -1,0 +1,11 @@
+{
+  "host": "0.0.0.0",
+  "port": 8099,
+  "dir": "/srv/media",
+  "write_key": "сгенерируй: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+  "public_base": "https://media.example.com",
+  "max_bytes": 33554432,
+  "max_total_bytes": 2147483648,
+  "keep_days": 30,
+  "max_files": 5000
+}
