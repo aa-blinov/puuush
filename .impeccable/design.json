@@ -1,118 +1,120 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-20T05:30:00Z",
+  "generatedAt": "2026-10-20T11:00:00Z",
   "title": "Design System: puuush",
   "extensions": {
     "colorMeta": {
-      "primary": {
-        "role": "primary",
-        "displayName": "Ink Black",
-        "canonical": "#18181b",
-        "tonalRamp": ["#09090b", "#18181b", "#27272a", "#3f3f46", "#52525b", "#71717a", "#a1a1aa", "#e4e4e7"]
+      "bg": {
+        "role": "neutral",
+        "displayName": "Night Warm",
+        "canonical": "#282828",
+        "tonalRamp": ["#1d2021", "#282828", "#3c3836", "#504945", "#665c54", "#928374", "#a89984", "#ebdbb2"]
       },
-      "ring": {
-        "role": "secondary",
-        "displayName": "Focus Blue",
-        "canonical": "#2563eb",
-        "tonalRamp": ["#172554", "#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#dbeafe"]
+      "fg": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#ebdbb2",
+        "tonalRamp": ["#282828", "#504945", "#665c54", "#928374", "#a89984", "#bdae93", "#d5c4a1", "#ebdbb2"]
       },
       "danger": {
         "role": "tertiary",
-        "displayName": "Failure Red",
-        "canonical": "#b91c1c",
-        "tonalRamp": ["#450a0a", "#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#f87171", "#fca5a5", "#fee2e2"]
+        "displayName": "Clay Red",
+        "canonical": "#ff8a7a",
+        "tonalRamp": ["#cc241d", "#fb4934", "#ff8a7a"]
       },
       "ok": {
         "role": "tertiary",
-        "displayName": "Confirm Green",
-        "canonical": "#15803d",
-        "tonalRamp": ["#052e16", "#14532d", "#166534", "#15803d", "#16a34a", "#4ade80", "#86efac", "#dcfce7"]
+        "displayName": "Olive",
+        "canonical": "#b8bb26",
+        "tonalRamp": ["#5f5f0e", "#98971a", "#b8bb26"]
       }
     },
     "typographyMeta": {
-      "body": { "displayName": "Body", "purpose": "Подписи полей и текст кнопок, 13px." },
-      "title": { "displayName": "Title", "purpose": "Заголовок окна, один раз на экран." },
-      "section": { "displayName": "Section", "purpose": "Заголовки секций, 14px." },
-      "mono": { "displayName": "Mono", "purpose": "Сочетания клавиш, адрес, ключ в статусе, 12px." },
-      "caption": { "displayName": "Caption", "purpose": "Клавиши в подсказке оверлея, подпись размера, адреса в истории, 11px." }
+      "body": { "displayName": "Body", "purpose": "Подписи полей и основной текст, 13px." },
+      "title": { "displayName": "Title", "purpose": "Заголовок окна, один раз на экран, 20px bold." },
+      "label": { "displayName": "Label", "purpose": "Заголовки разделов и метки: капс, 11px, разрядка 0.12em." },
+      "hint": { "displayName": "Hint", "purpose": "Пояснения под полями, 12px, не длиннее 75ch." },
+      "tag": { "displayName": "Tag", "purpose": "Статусные метки, капс, 11px." }
     },
-    "shadows": [
-      { "name": "pill-lift", "value": "0 1px 2px rgba(0, 0, 0, .08)", "purpose": "Подсказка и ошибка в оверлее поверх чужого экрана." },
-      { "name": "selection-edge", "value": "0 0 0 1px rgba(0, 0, 0, .35), 0 0 0 9999px rgba(0, 0, 0, .45)", "purpose": "Рамка выделения и затемнение вокруг неё." }
-    ],
+    "shadows": [],
     "motion": [
-      { "name": "state-change", "value": "150ms ease", "purpose": "Смена фона и границы при наведении и фокусе. Отключается при prefers-reduced-motion." }
+      { "name": "state-change", "value": "200ms", "purpose": "Смена цвета линии поля и прозрачности кнопки при наведении и фокусе. Отключается при prefers-reduced-motion." }
     ],
     "breakpoints": [
       { "name": "window", "value": "720px" }
     ],
     "radii": [
-      { "name": "sm", "value": "4px", "purpose": "Клавиши, код, подпись размера." },
-      { "name": "md", "value": "6px", "purpose": "Кнопки и поля." },
-      { "name": "lg", "value": "8px", "purpose": "Панели, баннер, пилюля подсказки." },
-      { "name": "pill", "value": "999px", "purpose": "Теги статуса." }
+      { "name": "ui", "value": "6px", "purpose": "Единственный радиус: метки, клавиши, баннер, пилюля подсказки." }
+    ],
+    "fontFiles": [
+      "src/fonts/jetbrains-mono-latin.woff2",
+      "src/fonts/jetbrains-mono-latin-ext.woff2",
+      "src/fonts/jetbrains-mono-cyrillic.woff2",
+      "src/fonts/jetbrains-mono-cyrillic-ext.woff2"
     ]
   },
   "components": [
     {
-      "name": "Primary Button",
+      "name": "Text Button",
       "kind": "button",
-      "refersTo": "button-primary",
-      "description": "Одна на экран: действие, с которого начинается задача.",
-      "html": "<button class=\"ds-btn-primary\">Выбрать файл…</button>",
-      "css": ".ds-btn-primary { height: 32px; padding: 0 12px; background: #18181b; color: #fafafa; border: 1px solid #18181b; border-radius: 6px; font: inherit; font-weight: 500; cursor: pointer; transition: background-color .15s, border-color .15s; } .ds-btn-primary:hover { background: #27272a; border-color: #27272a; } .ds-btn-primary:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }"
+      "refersTo": "button-text",
+      "description": "Кнопка без рамки: капс, разрядка, наведение гасит яркость.",
+      "html": "<button class=\"ds-btn\">Проверить</button>",
+      "css": ".ds-btn { min-height: 28px; padding: 0 4px; background: transparent; color: #ebdbb2; border: 0; font: 500 11px/1.45 'JetBrains Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: opacity 200ms; } .ds-btn:hover { opacity: 0.7; } .ds-btn:focus-visible { outline: 2px solid #ebdbb2; outline-offset: 2px; }"
     },
     {
-      "name": "Default Button",
-      "kind": "button",
-      "refersTo": "button-default",
-      "description": "Контурная кнопка для второстепенных действий.",
-      "html": "<button class=\"ds-btn\">Проверить сервер</button>",
-      "css": ".ds-btn { height: 32px; padding: 0 12px; background: #ffffff; color: #09090b; border: 1px solid #8e8e96; border-radius: 6px; font: inherit; font-weight: 500; cursor: pointer; transition: background-color .15s, border-color .15s; } .ds-btn:hover { background: #f4f4f5; } .ds-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }"
-    },
-    {
-      "name": "Text Input",
+      "name": "Underline Field",
       "kind": "input",
-      "refersTo": "input-text",
-      "description": "Поле адреса, папки и ключа.",
-      "html": "<input class=\"ds-input\" placeholder=\"https://media.example.com\">",
-      "css": ".ds-input { height: 32px; width: 100%; padding: 0 10px; background: #ffffff; color: #09090b; border: 1px solid #8e8e96; border-radius: 6px; font: inherit; } .ds-input::placeholder { color: #71717a; } .ds-input:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }"
+      "refersTo": "field-underline",
+      "description": "Поле без рамки: только нижняя линия.",
+      "html": "<input class=\"ds-field\" placeholder=\"https://media.example.com\">",
+      "css": ".ds-field { height: 32px; width: 100%; padding: 0; background: transparent; color: #ebdbb2; border: 0; border-bottom: 1px solid #928374; font: 13px 'JetBrains Mono', monospace; caret-color: #ebdbb2; } .ds-field::placeholder { color: #a89984; } .ds-field:focus-visible { outline: none; border-bottom-color: #ebdbb2; box-shadow: 0 1px 0 0 #ebdbb2; }"
     },
     {
       "name": "Status Tag",
       "kind": "chip",
       "refersTo": "tag",
-      "description": "Состояние операции: готов, ок, ошибка, в работе.",
+      "description": "Статусная метка: готов, ок, ошибка, в работе.",
       "html": "<span class=\"ds-tag ds-tag-ok\">готов</span>",
-      "css": ".ds-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid #e4e4e7; background: #f4f4f5; color: #52525b; font-size: 12px; font-weight: 500; } .ds-tag-ok { background: #f0fdf4; color: #15803d; border-color: #86efac; } .ds-tag-bad { background: #fef2f2; color: #b91c1c; border-color: #fca5a5; }"
+      "css": ".ds-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid #504945; border-radius: 6px; color: #a89984; font: 500 10px/1 'JetBrains Mono', monospace; letter-spacing: 0.12em; text-transform: uppercase; } .ds-tag-ok { color: #b8bb26; border-color: #b8bb26; } .ds-tag-bad { color: #ff8a7a; border-color: #ff8a7a; }"
+    },
+    {
+      "name": "Overlay Hint",
+      "kind": "custom",
+      "refersTo": "overlay-pill",
+      "description": "Пилюля подсказки поверх выбора области.",
+      "html": "<div class=\"ds-pill\"><kbd>Enter</kbd> подтвердить, <kbd>Esc</kbd> отменить</div>",
+      "css": ".ds-pill { padding: 8px 12px; border-radius: 6px; border: 1px solid #504945; background: rgba(40, 40, 40, 0.94); color: #ebdbb2; font: 12px/1.5 'JetBrains Mono', monospace; white-space: nowrap; } .ds-pill kbd { font: 600 11px/1 'JetBrains Mono', monospace; padding: 3px 6px; margin: 0 1px; border-radius: 6px; border: 1px solid #928374; background: #3c3836; color: #ebdbb2; }"
     }
   ],
   "narrative": {
-    "northStar": "The Quiet Tool",
-    "overview": "Окна puuush появляются на секунды и возвращаются в фон. Система держится на нейтральных слоях, тонких границах и тексте, который читается с первого взгляда. Акцент один и служит только фокусу и выделению. Цветом сообщается состояние, а не украшение.",
+    "northStar": "Карточка на столе",
+    "overview": "Скриншот уходит туда же, где лежат заметки monos: тёплая бумага, чернила и одна моноширинная гарнитура. Приложение живёт в трее и появляется на секунды, поэтому оно выглядит как часть той же линейки. Тёмная тема основная, светлая идёт по системе.",
     "keyCharacteristics": [
-      "нейтральные слои, без градиентов и стеклянных эффектов",
-      "одна кнопка-действие на экран, остальные контуры",
-      "состояния читаются текстом и цветом одновременно"
+      "тёплые фоны и чернила, без чистого белого и чистого чёрного",
+      "один шрифт на всё окно: JetBrains Mono",
+      "метки капсом с разрядкой, основной текст обычного регистра",
+      "плоско в покое: тени не используются",
+      "состояние показывается цветом и текстом сразу"
     ],
     "rules": [
-      { "name": "The One Accent Rule", "body": "Синий фокуса появляется только там, где элемент получил клавиатуру или выделен. Ничего не красится синим ради красоты.", "section": "colors" },
-      { "name": "The Contrast Floor Rule", "body": "Текст не ниже 4.5:1, границы контролов и кольцо фокуса не ниже 3:1. Значения проверены по WCAG, а не на глаз.", "section": "colors" },
-      { "name": "The One Family Rule", "body": "Все тексты окна идут одним системным семейством. Моноширинный только для данных, которые человек сверяет посимвольно.", "section": "typography" },
-      { "name": "The Flat-By-Default Rule", "body": "Поверхности плоские в покое. Тень появляется только у плавающих элементов поверх чужого экрана.", "section": "elevation" }
+      { "name": "The Warm Ground Rule", "body": "Фоны тёплые по построению. Чистые #ffffff и #000000 в окнах не появляются.", "section": "colors" },
+      { "name": "The Contrast Floor Rule", "body": "Текст не ниже 4.5:1, подчёркивание полей и кольцо фокуса не ниже 3:1 (WCAG 1.4.11).", "section": "colors" },
+      { "name": "The One Face Rule", "body": "Окно не смешивает гарнитуры. Все тексты JetBrains Mono.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Окна плоские всегда. Отделяет рамка или смена цвета.", "section": "elevation" }
     ],
     "dos": [
-      "Do держать кольцо фокуса 2px Focus Blue на каждом интерактивном элементе.",
-      "Do подписывать действие глаголом: «Выбрать файл…», «Проверить сервер».",
-      "Do показывать состояние текстом и цветом одновременно.",
-      "Do проверять контраст новых токенов по WCAG перед коммитом."
+      "Do читать цвета через переменные темы, не писать hex внутри правил.",
+      "Do проверять новое окно в тёмной теме первой, светлую потом.",
+      "Do держать подчёркнутые поля и текстовые кнопки: это и есть линейка.",
+      "Do писать состояние цветом и текстом сразу."
     ],
     "donts": [
-      "Don't делать больше одной кнопки Primary на экран.",
-      "Don't использовать нативную стрелку select: она у каждой ОС своя.",
-      "Don't добавлять веб-шрифты: окно работает без сети, а CSP их не пускает.",
-      "Don't ставить тень с большим размытием рядом с тонкой рамкой. Выбери одно.",
-      "Don't красить текст серым ниже 4.5:1 к фону, даже если «так привычнее»."
+      "Don't вводить залитые, рамочные или таблеточные кнопки.",
+      "Don't ставить тени в покое.",
+      "Don't использовать системный шрифт вместо JetBrains Mono.",
+      "Don't красить функциональные цвета ради украшения.",
+      "Don't брать чистый белый или чистый чёрный для фона окна."
     ]
   }
 }
