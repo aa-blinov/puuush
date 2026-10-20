@@ -293,7 +293,10 @@ async function checkServer() {
   } catch (e) {
     // Поле адреса помечается, когда проверка провалилась: красный контур видно без чтения строки.
     $('ownUrl').setAttribute('aria-invalid', 'true');
-    serverState(`сервер не настроен или не отвечает: ${e && e.message ? e.message : e}`, 'bad');
+    // Electron добавляет к ошибке IPC служебный префикс: пользователю он не нужен.
+    const raw = e && e.message ? e.message : String(e);
+    const detail = raw.replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
+    serverState(`сервер не настроен или не отвечает: ${detail}`, 'bad');
   }
 }
 
