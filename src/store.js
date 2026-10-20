@@ -101,7 +101,9 @@ function readJson(name, fallback, validate) {
   try {
     data = JSON.parse(raw);
   } catch (e) {
-    noteBroken(name, `повреждён: ${e.message}`);
+    // В окно уходит понятная причина, сырое сообщение парсера остаётся в логе.
+    console.error(`${name}: ${e.message}`);
+    noteBroken(name, 'повреждён, JSON не читается');
     return fallback;
   }
   if (validate && !validate(data)) {
