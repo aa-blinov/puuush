@@ -99,9 +99,13 @@ function paint() {
   veil.style.display = 'none';
   size.style.display = box.width > 40 && box.height > 20 ? 'block' : 'none';
   size.style.left = box.x + box.width / 2 + 'px';
-  // У самого верхнего края над рамкой нет места: подпись уходит внутрь рамки,
-  // иначе её срезает край экрана (body overflow: hidden).
-  size.style.top = (box.y < 26 ? box.y + 4 : box.y - 22) + 'px';
+  // Над рамкой подпись, если там есть место. У самого верхнего края её ставим
+  // под нижний край рамки: пилюля подсказки перекрыла бы её. Если и снизу не
+  // влезает, держим внутри рамки у низа.
+  let top = box.y - 22;
+  if (box.y < 26) top = box.y + box.height + 6;
+  if (top + 20 > H) top = box.y + box.height - 26;
+  size.style.top = top + 'px';
   size.style.transform = 'translateX(-50%)';
   size.textContent = `${Math.round(box.width)} × ${Math.round(box.height)}`;
   // Текст статичный, пользовательского ввода здесь нет, поэтому innerHTML безопасен.

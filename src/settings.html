@@ -157,7 +157,7 @@
     white-space: nowrap;
     transition: background-color .15s, border-color .15s;
   }
-  button:hover { background: var(--surface); }
+  button:hover:not(:disabled) { background: var(--surface); }
   button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   button.primary {
     background: var(--primary);
@@ -252,6 +252,7 @@
     cursor: pointer;
   }
   td.u:hover { color: var(--fg); }
+  td.u:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
   td.t { white-space: nowrap; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .empty { color: var(--muted); text-align: center; padding: 16px; }
 
@@ -323,7 +324,7 @@
     <div id="ownBox">
       <div class="row">
         <label for="ownUrl">Свой сервер</label>
-        <input type="text" id="ownUrl" class="grow" placeholder="https://media.example.duckdns.org">
+        <input type="text" id="ownUrl" class="grow" placeholder="https://media.example.duckdns.org" aria-describedby="serverState">
       </div>
       <div class="row two">
         <label for="ownKey">Ключ записи</label>

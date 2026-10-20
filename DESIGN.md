@@ -233,7 +233,7 @@ components:
 - **Broken settings:** фон Danger Bg, граница Danger Border, заголовок Failure Red. Текст причины и последствия — Ink и Muted Ink.
 
 ### Overlay Hint
-- **Style:** пилюля с радиусом 8px, фон Paper с прозрачностью 94%, граница Hairline. Клавиши в `<kbd>`: фон Quiet Slate, граница Control Edge, моноширинный 11px.
+- **Style:** пилюля с радиусом 8px, фон Paper (в тёмной теме Quiet Slate #18181b) с прозрачностью 94%, граница Hairline. Клавиши в `<kbd>`: фон Quiet Slate, граница Control Edge, моноширинный 11px.
 - **Size label:** 20px в высоту, радиус 4px, инверсия фона и текста (Ink на Paper и наоборот).
 
 ## Do's and Don'ts
