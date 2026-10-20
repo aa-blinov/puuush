@@ -81,7 +81,7 @@
   /* Секции разделены линией и воздухом, карточки внутри окна не нужны. */
   section { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
   section:first-of-type { border-top: none; margin-top: 24px; padding-top: 0; }
-  h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; letter-spacing: -0.01em; }
+  h2 { font-size: 14px; font-weight: 600; line-height: 1.4; margin: 0 0 14px; letter-spacing: -0.01em; }
 
   /* Подпись, поле и кнопка в одну строку. Подпись не шире 168 px. */
   .row {
@@ -111,6 +111,7 @@
     transition: border-color .15s, box-shadow .15s;
   }
   input::placeholder { color: var(--placeholder); }
+  input[aria-invalid="true"] { border-color: var(--danger); }
   input:focus-visible, select:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 1px;
@@ -141,10 +142,7 @@
     letter-spacing: 0.02em;
     cursor: pointer;
   }
-  #hotkey.listening {
-    border-color: var(--ring);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 30%, transparent);
-  }
+  #hotkey.listening { border-color: var(--ring); }
 
   button {
     height: 32px;
@@ -178,13 +176,15 @@
   }
   input[type=checkbox]:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 14px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 6px 0 14px; max-width: 75ch; }
+  /* Публичный адрес: главное по приватности, поэтому читается как текст, а не как пояснение. */
+  .hint.warn { color: var(--fg); font-weight: 500; }
   .hint:last-child { margin-bottom: 0; }
   .hint.ok { color: var(--ok); }
   .hint.bad { color: var(--danger); }
   .hint code {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--fg);
     background: var(--surface);
     padding: 1px 5px;
@@ -194,7 +194,7 @@
   /* Предупреждение держится на рамке и тексте, без цветной полосы сбоку. */
   .broken {
     display: none;
-    margin: 0 0 20px;
+    margin: 16px 0 20px;
     padding: 12px 14px;
     border: 1px solid var(--danger-border);
     border-radius: var(--radius-lg);
@@ -211,6 +211,7 @@
     border-radius: var(--radius);
     font-family: var(--mono);
     font-size: 12px;
+    font-weight: 500;
     background: var(--surface);
     border: 1px solid var(--border);
     display: none;
@@ -255,6 +256,7 @@
   .empty { color: var(--muted); text-align: center; padding: 16px; }
 
   .tag {
+    justify-self: start;
     display: inline-flex;
     align-items: center;
     height: 22px;
@@ -289,7 +291,7 @@
   <div id="broken" class="broken">
     <b>Файл настроек не прочитан.</b>
     <span id="brokenWhy"></span>
-    Показанные значения — по умолчанию. Если ты выбирал «только свой box»,
+    Показанные значения — по умолчанию. Если ты выбирал «только свой сервер»,
     следующий снимок может уйти на публичный хостинг. Настройки сохраняются
     сами: поправь нужные поля, и всё применится.
   </div>
@@ -365,7 +367,7 @@
     <div id="drop">Перетащи файл сюда, загрузится и скопируется ссылка</div>
     <div class="row" style="margin-top:12px; grid-template-columns:auto auto 1fr auto">
       <button id="pickFile" class="primary">Выбрать файл…</button>
-      <button id="pickClip">Картинка из буфера</button>
+      <button id="pickClip">Загрузить из буфера</button>
       <span class="tag" id="stateTag">готов</span>
     </div>
     <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>

@@ -218,6 +218,7 @@ function serverState(text, kind) {
 function showNextTarget() {
   const host = $('host').value;
   const el = $('nextTarget');
+  el.className = 'hint';
   // Свою приватность обещать можно только когда сервер реально настроен.
   // В режиме «авто» пустой сервер молча пропускается, и файл уходит на
   // публичный хостинг — раньше здесь стояло «уйдёт на свой сервер», и на
@@ -232,11 +233,15 @@ function showNextTarget() {
     el.textContent = ownReady
       ? 'Следующий снимок уйдёт на свой сервер, а если он недоступен — на внешний хостинг.'
       : 'Свой сервер не настроен, следующий снимок уйдёт на публичный внешний хостинг.';
+    // Публичный адрес помечается отдельно: это главное по приватности, и оно не
+    // должно читаться как пояснение серой подсказкой.
+    el.className = ownReady ? 'hint' : 'hint warn';
   } else {
     const opt = $('host').selectedOptions[0];
     // В подписи варианта уже есть «— постоянно», второй раз повторять не нужно.
     const name = opt ? opt.textContent.split('—')[0].trim() : 'выбранный хостинг';
     el.textContent = `Следующий снимок уйдёт на ${name}, это публичный хостинг.`;
+    el.className = 'hint warn';
 }
 }
 
@@ -249,7 +254,19 @@ $('showKey').addEventListener('click', () => {
   el.focus();
 });
 
+// Пока проверка идёт, кнопка заблокирована: повторный клик слал бы второй запрос.
 $('verifyServer').addEventListener('click', async () => {
+  const btn = $('verifyServer');
+  btn.disabled = true;
+  try {
+    await checkServer();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function checkServer() {
+  $('ownUrl').removeAttribute('aria-invalid');
   serverState('проверяю…');
   const own = {
     base_url: $('ownUrl').value.trim(),
@@ -274,9 +291,11 @@ $('verifyServer').addEventListener('click', async () => {
     );
     $('broken').classList.remove('show');
   } catch (e) {
+    // Поле адреса помечается, когда проверка провалилась: красный контур видно без чтения строки.
+    $('ownUrl').setAttribute('aria-invalid', 'true');
     serverState(`сервер не настроен или не отвечает: ${e && e.message ? e.message : e}`, 'bad');
   }
-});
+}
 
 $('host').addEventListener('change', async () => {
   syncOwnVisibility();

@@ -45,6 +45,12 @@
     ],
     "breakpoints": [
       { "name": "window", "value": "720px" }
+    ],
+    "radii": [
+      { "name": "sm", "value": "4px", "purpose": "Клавиши, код, подпись размера." },
+      { "name": "md", "value": "6px", "purpose": "Кнопки и поля." },
+      { "name": "lg", "value": "8px", "purpose": "Панели, баннер, пилюля подсказки." },
+      { "name": "pill", "value": "999px", "purpose": "Теги статуса." }
     ]
   },
   "components": [

@@ -99,10 +99,13 @@ function paint() {
   veil.style.display = 'none';
   size.style.display = box.width > 40 && box.height > 20 ? 'block' : 'none';
   size.style.left = box.x + box.width / 2 + 'px';
-  size.style.top = box.y - 22 + 'px';
+  // У самого верхнего края над рамкой нет места: подпись уходит внутрь рамки,
+  // иначе её срезает край экрана (body overflow: hidden).
+  size.style.top = (box.y < 26 ? box.y + 4 : box.y - 22) + 'px';
   size.style.transform = 'translateX(-50%)';
   size.textContent = `${Math.round(box.width)} × ${Math.round(box.height)}`;
-  hint.textContent = 'Enter — выделенное, Esc — отмена, заново — тяни рамку';
+  // Текст статичный, пользовательского ввода здесь нет, поэтому innerHTML безопасен.
+  hint.innerHTML = '<kbd>Enter</kbd> подтвердить, <kbd>Esc</kbd> отменить, <kbd>Space</kbd> — весь экран, заново — тяни рамку';
 }
 
 window.addEventListener('keydown', (e) => {
