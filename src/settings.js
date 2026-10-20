@@ -265,6 +265,21 @@ $('verifyServer').addEventListener('click', async () => {
   }
 });
 
+/** Русское склонение: 1 файл, 2 файла, 5 файлов. */
+function plural(n, one, few, many) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+/** Размер для человека: килобайты до мегабайта, потом мегабайты. */
+function humanSize(bytes) {
+  if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+  return `${Math.round(bytes / 1048576)} МБ`;
+}
+
 async function checkServer() {
   $('ownUrl').removeAttribute('aria-invalid');
   serverState('проверяю…');
@@ -282,11 +297,11 @@ async function checkServer() {
   try {
     const r = await window.puuush.verifyServer(own);
     const files = r && r.files != null ? r.files : null;
-    const mb = r && r.bytes != null ? Math.round(r.bytes / 1048576) : null;
+    const size = r && r.bytes != null ? humanSize(r.bytes) : null;
     serverState(
       files == null
         ? 'сервер отвечает, ключ подходит.'
-        : `сервер отвечает, ключ подходит. На нём ${files} файлов, ${mb} МБ.`,
+        : `сервер отвечает, ключ подходит. На нём ${files} ${plural(files, 'файл', 'файла', 'файлов')}, ${size}.`,
       'ok'
     );
     $('broken').classList.remove('show');
