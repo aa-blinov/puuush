@@ -34,7 +34,7 @@ function loadConfig() {
     dir: raw.dir || '/srv/media',
     writeKey: String(raw.write_key || ''),
     publicBase: String(raw.public_base || '').replace(/\/+$/, ''),
-    maxBytes: Number(raw.max_bytes || 32 * 1024 * 1024),
+    maxBytes: Number(raw.max_bytes || 64 * 1024 * 1024),
     maxTotalBytes: Number(raw.max_total_bytes || 2 * 1024 * 1024 * 1024),
     keepDays: Number(raw.keep_days || 30),
     maxFiles: Number(raw.max_files || 5000),
