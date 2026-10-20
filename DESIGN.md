@@ -1,6 +1,6 @@
 ---
 name: puuush
-description: Снимок области экрана и ссылка на него в буфере обмена. Одна линейка с monos.
+description: A screenshot of a region of the screen and the link to it in the clipboard, on one line with monos.
 colors:
   bg: "#282828"
   surface: "#3c3836"
@@ -69,175 +69,226 @@ spacing:
   roomy: "24px"
   section: "32px"
   input: "32px"
-components:
-  button-text:
-    backgroundColor: "transparent"
-    textColor: "{colors.fg}"
-    typography: "label, 500"
-    height: "28px"
-  button-text-primary:
-    backgroundColor: "transparent"
-    textColor: "{colors.fg}"
-    typography: "label, 700"
-    height: "28px"
-  field-underline:
-    backgroundColor: "transparent"
-    textColor: "{colors.fg}"
-    height: "32px"
-  tag:
-    backgroundColor: "transparent"
-    textColor: "{colors.muted}"
-    rounded: "{rounded.ui}"
-    height: "22px"
-  banner-danger:
-    backgroundColor: "transparent"
-    textColor: "{colors.fg}"
-    rounded: "{rounded.ui}"
-  overlay-pill:
-    backgroundColor: "{colors.overlay-pill}"
-    textColor: "{colors.fg}"
-    rounded: "{rounded.ui}"
 ---
 
-# Design System: puuush
+# Design system: puuush
 
 ## Overview
 
-**Creative North Star: "Карточка на столе"**
+**Creative North Star: "a card on the table"**
 
-Скриншот уходит туда же, где лежат заметки monos: тёплая бумага, чернила и одна
-моноширинная гарнитура. Приложение живёт в трее и появляется на секунды, поэтому
-оно должно выглядеть как часть той же линейки, а не как отдельная утилита.
+The screenshot goes where the notes already lie: warm paper, dark ink and a
+single monospace family. The app lives in the tray and shows itself for a
+few seconds at a time, so it has to look like part of that family rather
+than like a separate utility.
 
-Линейка общая с monos (его `DESIGN.md`): палитра Gruvbox, JetBrains Mono, один
-радиус 6px, текстовые кнопки, поля с подчёркиванием, плоскость без теней. Здесь
-добавлено только то, что нужно окнам puuush: рамка выбора области и пилюля
-подсказки.
+The family is shared with monos, whose own `DESIGN.md` holds the same
+palette, the same face and the same components: the Gruvbox palette, JetBrains
+Mono, one radius of 6px, text buttons, underlined fields, and flat surfaces
+with no shadows at all. Two things are added here for the windows puuush
+needs: the frame of the region picker and the hint pill above it.
 
-Тёмная тема основная. Её проработали первой, светлая идёт по системе и
-проверена отдельно.
+The dark theme is the primary one. It was worked out first, and the light
+theme follows the system and was checked on its own.
 
-**Key Characteristics:**
-- тёплые фоны и чернила, без чистого белого и чистого чёрного;
-- один шрифт на всё окно: JetBrains Mono, кириллица из той же семьи;
-- метки капсом с разрядкой, основной текст обычного регистра;
-- плоско в покое: тени не используются вообще;
-- состояние показывается цветом и текстом сразу.
+Key characteristics:
+
+- warm grounds and dark ink, with no pure white and no pure black;
+- one font across the whole window, JetBrains Mono, with Cyrillic from the
+  same family;
+- labels in caps with letter spacing, body text in ordinary case;
+- flat at rest, and the system uses no shadow at all;
+- state is shown by colour and by text at the same time.
 
 ## Colors
 
-Палитра Gruvbox, тёплая и низкой насыщенности. Тёмная тема задаёт значения без
-суффикса, светлая использует суффикс `-light`. Оба набора включаются через
-`prefers-color-scheme`.
+The palette is Gruvbox, warm and low in saturation. The dark theme sets the
+values without a suffix and the light theme uses the `-light` suffix. Both
+sets are switched by `prefers-color-scheme`.
 
 ### Primary
-- **Night Warm** (`#282828`, светлая `#fbf1c7`): поверхность окна.
-- **Night Shade** (`#3c3836`, светлая `#ebdbb2`): второй слой, фон кода и поверхности.
+
+- **Night Warm** (`#282828`, light `#fbf1c7`): the surface of the window.
+- **Night Shade** (`#3c3836`, light `#ebdbb2`): the second layer, the ground
+  of code blocks and of the surfaces that sit on the window.
 
 ### Secondary
-- **Ink** (`#ebdbb2`, светлая `#3c3836`): основной текст, фокус и выделение. Контраст 10.75:1 на тёмном, 10.22:1 на светлом.
-- **Ink Soft** (`#a89984`, светлая `#665c54`): вторичный текст. На тёмном только на фоне окна (5.30:1), на поверхностях текст переходит на Ink.
+
+- **Ink** (`#ebdbb2`, light `#3c3836`): body text, the focus ring and the
+  selection. The contrast is 10.75:1 on the dark ground and 10.22:1 on the
+  light one.
+- **Ink Soft** (`#a89984`, light `#665c54`): secondary text. On the dark
+  theme it only reaches 5.30:1 against the window ground, so on the raised
+  surfaces the text switches back to Ink.
 
 ### Tertiary
-- **Olive** (`#b8bb26`, светлая `#5f5f0e`): успех. Светлый olive для текста не держит, поэтому в светлой теме берётся темнее.
-- **Clay Red** (`#ff8a7a`, светлая `#cc241d`): ошибка. Тёмный оттенок в тёмной теме читается как предупреждение, поэтому взят светлее.
-- **Slate Blue** (`#83a598`, светлая `#076678`): информация, в интерфейсе сейчас не используется.
+
+- **Olive** (`#b8bb26`, light `#5f5f0e`): success. The bright olive does not
+  hold as text on paper, so the light theme takes a darker one.
+- **Clay Red** (`#ff8a7a`, light `#cc241d`): error. On the dark ground the
+  lighter shade reads as a warning rather than as a stop, so it is the one
+  that is used there.
+- **Slate Blue** (`#83a598`, light `#076678`): information. The interface
+  does not use it today.
 
 ### Neutral
-- **Rule** (`#504945`, светлая `#d5c4a1`): линии разделов и строк. Декоративная, контрастом не измеряется.
-- **Control** (`#928374`, оба варианта): подчёркивание полей и края контролов, 4.02:1 на тёмном и 3.24:1 на светлом.
-- **Scrim** (`rgba(0, 0, 0, 0.45)`): затемнение экрана под окном выбора области.
 
-### Named Rules
-**The Warm Ground Rule.** Фоны тёплые по построению. Чистые `#ffffff` и `#000000` в окнах не появляются.
+- **Rule** (`#504945`, light `#d5c4a1`): the lines that divide sections and
+  rows. Decoration, and not measured for contrast.
+- **Control** (`#928374`, the same in both themes): the underline of a field
+  and the edge of a control. 4.02:1 on the dark ground and 3.24:1 on the
+  light one.
+- **Scrim** (`rgba(0, 0, 0, 0.45)`): the dimming of the screen under the
+  region picker.
 
-**The Contrast Floor Rule.** Текст не ниже 4.5:1, подчёркивание полей и кольцо фокуса не ниже 3:1 (WCAG 1.4.11). Значения проверены по формуле WCAG.
+### Named rules
+
+**The Warm Ground Rule.** The grounds are warm by construction. Pure
+`#ffffff` and pure `#000000` do not appear in the windows.
+
+**The Contrast Floor Rule.** Text is never below 4.5:1, and the underline of
+a field and the focus ring are never below 3:1, which is WCAG 1.4.11. The
+values in the frontmatter were measured with the WCAG formula.
 
 ## Typography
 
-**Font:** JetBrains Mono (`fonts/`, четыре подмножества: latin, latin-ext, cyrillic, cyrillic-ext, OFL-лицензия рядом). Системного шрифта нет: окно не грузит внешних ресурсов, а `font-src 'self'` пускает только шрифты из своей папки.
+**Font:** JetBrains Mono, in four subsets under `fonts/`: latin, latin-ext,
+cyrillic and cyrillic-ext, with the OFL licence beside them. There is no
+system font: the window loads no external resource, and the Content
+Security Policy sets `font-src 'self'`, which allows only the fonts in its
+own folder.
 
-**Character:** карточки на столе. Все строки одного шрифта выравниваются по колонкам без усилий, поэтому иерархия держится на размере и весе, а не на смене гарнитуры.
+**Character:** a card on the table. Lines of one font line up into columns
+without effort, so the hierarchy rests on size and weight rather than on a
+change of family.
 
 ### Hierarchy
-- **Title** (700, 20px, 1.3, -0.025em): заголовок окна «puuush».
-- **Label** (500, 11px, 1.45, 0.12em, капс): заголовки разделов, метки. Цвет Ink Soft.
-- **Body** (400, 13px, 1.55): подписи полей, основной текст. Цвет Ink.
-- **Hint** (400, 12px, 1.5, Ink Soft): пояснения, не длиннее 75ch.
-- **Tag** (500, 10px, 0.12em, капс): статусные метки.
 
-### Named Rules
-**The One Face Rule.** Окно не смешивает гарнитуры. Все тексты JetBrains Mono, включая клавиши и адреса.
+- **Title** (700, 20px, 1.3, -0.025em): the window title, "puuush".
+- **Label** (500, 11px, 1.45, 0.12em, caps): the section headings and the
+  field labels. The colour is Ink Soft.
+- **Body** (400, 13px, 1.55): the field values and the main text. The colour
+  is Ink.
+- **Hint** (400, 12px, 1.5, Ink Soft): the explanations under the fields, at
+  most 75 characters a line.
+- **Tag** (500, 11px, 0.12em, caps): the status tags.
+
+### Named rules
+
+**The One Face Rule.** The window does not mix families. All of the text is
+JetBrains Mono, keys and addresses included.
 
 ## Layout
 
-Фиксированная ширина 720px, без горизонтальной прокрутки. Разделы идут друг за
-другом, между ними линия Rule и отступ 32px сверху и 24px внутри. Подпись,
-поле и кнопка стоят в строке: подпись 168px, поле растягивается, кнопки справа.
-Строки-галочки: подпись на всю ширину, галочка справа.
+The settings window is 720 pixels wide and 700 tall, with no horizontal
+scroll. The sections follow each other, and between them there is a line in
+the colour of a rule, 32 pixels of space above and 24 pixels of padding
+inside.
 
-Вертикальная прокрутка есть, если разделы не помещаются в высоту окна. История
-прокручивается внутри своей рамки, высота ограничена 240px.
+A label, a field and a button stand in one row: the label takes 168
+pixels, the field takes what is left, and the buttons sit on the right. A
+checkbox row is different: the label takes the whole width and the checkbox
+sits on the right, so that a long label never wraps.
 
-Оверлей выбора области не имеет сетки: затемнённый снимок на весь экран, рамка
-выделения и подпись размера над рамкой (или под ней, если рамка у верхнего края).
+There is vertical scrolling when the sections do not fit the height of the
+window. The history scrolls inside its own frame, whose height is capped at
+240 pixels.
+
+The region picker has no grid. It is a dimmed capture over the whole
+screen, a selection frame, and the size of the selection above the frame, or
+below it when the frame is against the top of the screen.
 
 ## Elevation & Depth
 
-Плоско. Слои различаются цветом фона, а не тенями, и тени в системе не используются.
-Пилюля подсказки в оверлее держится на рамке Rule. Выделение в оверлее держится на
-рамке Ink и на затемнении вокруг.
+Flat. The layers are told apart by the colour of the ground, and the system
+uses no shadows. The hint pill in the picker rests on a rule-coloured
+border, and the selection rests on an ink-coloured border with the dimming
+around it.
 
-### Named Rules
-**The Flat-By-Default Rule.** Окна плоские всегда. Если элемент нужно отделить, это делает рамка или смена цвета.
+### Named rules
+
+**The Flat By Default Rule.** The windows are flat at all times. When an
+element has to be set apart, a border or a change of colour does it.
 
 ## Shapes
 
-Один радиус: 6px для всех прямоугольников, то есть для меток, клавиш, баннера и пилюли. Поля-подчёркивания радиуса не имеют: это одна линия. Круга нет.
+One radius: 6px for every rectangle, which means the tags, the keys, the
+banner and the pill. The underlined fields have no radius, because they are
+a single line. There is no circle anywhere.
 
-Пунктир допустим только у зоны перетаскивания файла.
+A dashed line is allowed in one place only, around the drop target for a
+file.
 
 ## Components
 
 ### Buttons
-- **Shape:** текст и есть кнопка, рамки нет. Высота 28px, горизонтальный отступ 4px.
-- **Default:** капс, 11px, 500, разрядка 0.1em, цвет Ink.
-- **Primary:** то же с весом 700. Одна на экран, для действия, с которого начинается задача.
-- **Hover:** яркость 70%, без смены цвета.
-- **Focus:** контур 2px Ink со смещением 2px.
-- **Disabled:** прозрачность 30%.
+
+- **Shape:** the text is the button, and there is no frame around it. The
+  height is 28 pixels and the horizontal padding is 4.
+- **Default:** caps, 11px, weight 500, 0.1em of letter spacing, the colour
+  Ink.
+- **Primary:** the same at weight 700. One per screen, on the action the
+  task starts from.
+- **Hover:** the brightness drops to 70%, and the colour does not change.
+- **Focus:** a 2px ring in Ink, offset by 2.
+- **Disabled:** 30% opacity.
 
 ### Fields
-- **Style:** только нижняя линия 1px Control, без фона и радиуса, высота 32px.
-- **Focus:** линия становится Ink, плюс тонкая тень-линия 1px того же цвета.
-- **Invalid:** линия Clay Red.
-- **Placeholder:** Ink Soft, не ниже 4.5:1.
-- **Select:** нативная стрелка скрыта, своя стрелка Ink Soft справа.
-- **Checkbox:** 16px, заливка Ink.
+
+- **Style:** a 1px underline in the colour of a control, no background and
+  no radius, 32 pixels tall.
+- **Focus:** the line becomes Ink, and a thin shadow line in the same colour
+  is added under it.
+- **Invalid:** the line becomes Clay Red.
+- **Placeholder:** Ink Soft, never below 4.5:1.
+- **Select:** the native arrow is hidden and replaced with one in Ink Soft
+  on the right, because the native one is drawn differently on every
+  operating system.
+- **Checkbox:** 16 pixels, filled with Ink.
 
 ### Tags
-- **Style:** рамка Rule 1px, радиус 6px, высота 22px, капс 10px.
-- **State:** `ok` оливковый, `bad` красный, `busy` цветом Ink.
+
+- **Style:** a 1px border in the colour of a rule, a radius of 6, a height
+  of 22, caps at 11px.
+- **State:** `ok` is olive, `bad` is clay red, `busy` takes the colour of
+  Ink.
 
 ### Banners
-- **Broken settings:** рамка Clay Red 1px, радиус 6px, текст Ink. Заголовок Clay Red, причина Ink Soft. Цветной полосы сбоку нет.
+
+- **Broken settings:** a 1px border in Clay Red, a radius of 6, the text in
+  Ink. The heading is Clay Red and the reason is Ink Soft. There is no
+  coloured bar down the side.
 
 ### Overlay
-- **Hint pill:** фон Night Warm с прозрачностью 94%, рамка Rule, радиус 6px, текст Ink 12px. Клавиши в `kbd`: рамка Control, фон Night Shade, капс не нужен.
-- **Selection:** рамка 1px Ink, тонкая тёмная линия снаружи и затемнение Scrim вокруг.
-- **Size label:** 20px в высоту, фон Ink, текст Night Warm (инверсия), радиус 6px.
+
+- **Hint pill:** the ground of Night Warm at 94% opacity, a border in the
+  colour of a rule, a radius of 6, the text in Ink at 12px. The keys sit in
+  `kbd` with a border in the colour of a control and the ground of Night
+  Shade.
+- **Selection:** a 1px border in Ink, a thin dark line outside it, and the
+  scrim around it.
+- **Size label:** 20 pixels tall, the ground of Ink, the text of Night Warm
+  inverted, a radius of 6.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** читать цвета через переменные темы, не писать hex внутри правил.
-- **Do** проверять новое окно в тёмной теме первой, светлую потом.
-- **Do** держать подчёркнутые поля и текстовые кнопки: это и есть линейка.
-- **Do** писать состояние цветом и текстом сразу.
+
+- **Do** read the colours through the theme variables, and never write a hex
+  value inside a rule.
+- **Do** check a new window in the dark theme first and in the light theme
+  second.
+- **Do** keep the underlined fields and the text buttons. That is the
+  family.
+- **Do** show the state by colour and by text at the same time.
+- **Do** turn every transition off under `prefers-reduced-motion`.
 
 ### Don't:
-- **Don't** вводить залитые, рамочные или таблеточные кнопки. Текст в капсе и есть кнопка.
-- **Don't** ставить тени в покое. Окна плоские.
-- **Don't** использовать системный шрифт вместо JetBrains Mono.
-- **Don't** красить функциональные цвета ради украшения: зелёный, красный и оливковый означают состояние.
-- **Don't** брать чистый белый или чистый чёрный для фона окна.
+
+- **Don't** introduce filled, framed or pill-shaped buttons. Caps in the text
+  are the button.
+- **Don't** put a shadow on anything at rest. The windows are flat.
+- **Don't** fall back on the system font instead of JetBrains Mono.
+- **Don't** paint the functional colours for decoration. Green, red and
+  olive mean a state.
+- **Don't** use a pure white or a pure black for the ground of a window.
