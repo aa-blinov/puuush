@@ -367,11 +367,11 @@ function readBody(req, limit) {
     req.on('data', (c) => {
       total += c.length;
       if (total > limit) {
-        // Не рвём сокет здесь: клиент ещё досылает тело, и обрыв не даст ему
-        // прочитать ответ. Ставим флаг, прекращаем копить и ждём, пока
-        // обработчик отправит 413; соединение закрываем уже после отправки.
+        // Не рвём сокет и не ставим приём на паузу: клиент ещё досылает тело.
+        // Пауза оставляла недочитанные данные, и закрытие сокета давало сброс
+        // соединения раньше, чем клиент прочитал 413 (macOS и Windows). Тело
+        // дочитываем без буферизации, закрытие сокета откладывает jsonAbort.
         finish(reject, Object.assign(new Error('файл больше лимита'), { code: 413, tooLarge: true }));
-        req.pause();
         return;
       }
       chunks.push(c);
@@ -381,10 +381,18 @@ function readBody(req, limit) {
   });
 }
 
-/** Ответ с телом, который клиент может не дослушать, — соединение закрываем. */
-function jsonAbort(res, status, obj) {
+/**
+ * Ответ с телом, который клиент может не дослушать. Соединение закрываем, когда
+ * клиент дочитал своё тело, или через две секунды, если он молчит.
+ */
+function jsonAbort(res, status, obj, req) {
   json(res, status, obj);
-  res.on('finish', () => res.socket && res.socket.end());
+  res.on('finish', () => {
+    const close = () => res.socket && res.socket.end();
+    if (!req || req.complete) return close();
+    req.on('end', close);
+    setTimeout(close, 2000).unref();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -600,7 +608,7 @@ async function handleRequest(req, res, cfg, limit) {
       return jsonAbort(res, 413, {
         error: `файл больше лимита ${cfg.maxBytes} байт`,
         max_bytes: cfg.maxBytes,
-      });
+      }, req);
     }
     // Наружу нейтральный текст: сырое сообщение Node уносит в клиент
     // абсолютный путь файловой системы и намекает на раскладку каталогов.
