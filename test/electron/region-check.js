@@ -90,7 +90,10 @@ app.whenReady().then(async () => {
               new MouseEvent(nm(t),{clientX:p[0],clientY:p[1],button:0,bubbles:true,cancelable:true}));
             go('mouseDown',P[0]); go('mouseMove',P[P.length-1]); go('mouseUp',P[P.length-1]);
           })()`, true);
-          setTimeout(() => w.webContents.executeJavaScript(
+          // Enter не шлём, если рамка уже вернулась: клик без смещения подтверждается
+          // мышью, окно к этому времени уничтожено, и обращение к webContents бросает
+          // исключение в главном процессе. Оно уходит в модальное окно и вешает тест.
+          setTimeout(() => done || w.webContents.executeJavaScript(
             "window.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))", true), 120);
           setTimeout(() => {
             if (done) return;
