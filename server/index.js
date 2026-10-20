@@ -362,36 +362,26 @@ function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let total = 0;
+    let over = false;
     let done = false;
     const finish = (fn, arg) => { if (!done) { done = true; fn(arg); } };
+    const tooLarge = () => Object.assign(new Error('файл больше лимита'), { code: 413, tooLarge: true });
     req.on('data', (c) => {
       total += c.length;
-      if (total > limit) {
-        // Не рвём сокет и не ставим приём на паузу: клиент ещё досылает тело.
-        // Пауза оставляла недочитанные данные, и закрытие сокета давало сброс
-        // соединения раньше, чем клиент прочитал 413 (macOS и Windows). Тело
-        // дочитываем без буферизации, закрытие сокета откладывает jsonAbort.
-        finish(reject, Object.assign(new Error('файл больше лимита'), { code: 413, tooLarge: true }));
+      // Лишнее тело дочитываем без буферизации: ответ 413 уходит только после
+      // конца запроса. Иначе сервер закрывал бы сокет с недочитанным телом,
+      // и клиент получал сброс вместо ответа (macOS, Windows). Потолок
+      // четыре лимита: дальше рвём соединение, это уже злоупотребление.
+      if (total > limit * 4) {
+        finish(reject, tooLarge());
+        req.destroy();
         return;
       }
+      if (total > limit) { over = true; return; }
       chunks.push(c);
     });
-    req.on('end', () => finish(resolve, Buffer.concat(chunks)));
+    req.on('end', () => (over ? finish(reject, tooLarge()) : finish(resolve, Buffer.concat(chunks))));
     req.on('error', (e) => finish(reject, e));
-  });
-}
-
-/**
- * Ответ с телом, который клиент может не дослушать. Соединение закрываем, когда
- * клиент дочитал своё тело, или через две секунды, если он молчит.
- */
-function jsonAbort(res, status, obj, req) {
-  json(res, status, obj);
-  res.on('finish', () => {
-    const close = () => res.socket && res.socket.end();
-    if (!req || req.complete) return close();
-    req.on('end', close);
-    setTimeout(close, 2000).unref();
   });
 }
 
@@ -602,13 +592,11 @@ async function handleRequest(req, res, cfg, limit) {
     return json(res, 404, { error: 'файлы раздаёт веб-сервер, здесь только /v1/' });
   } catch (e) {
     if (e.tooLarge || e.code === 413) {
-      // Клиент может быть ещё в середине отправки. Рвать соединение нельзя,
-      // иначе он не прочитает код ответа и решит, что сеть отвалилась.
-      res.setHeader('Connection', 'close');
-      return jsonAbort(res, 413, {
+      // Тело к этому моменту уже дочитано (см. readBody), поэтому обычный ответ.
+      return json(res, 413, {
         error: `файл больше лимита ${cfg.maxBytes} байт`,
         max_bytes: cfg.maxBytes,
-      }, req);
+      });
     }
     // Наружу нейтральный текст: сырое сообщение Node уносит в клиент
     // абсолютный путь файловой системы и намекает на раскладку каталогов.
