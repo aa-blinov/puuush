@@ -405,3 +405,17 @@ test('сервер не течёт файлами, когда метаданны
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('X-Real-IP принимается только из сети edge 172.40.0.0/24', () => {
+  const req = (remote, rip) => ({
+    socket: { remoteAddress: remote },
+    headers: rip ? { 'x-real-ip': rip } : {},
+  });
+  // Из сети edge заголовок читаем: адрес клиента поставил Caddy.
+  assert.strictEqual(server.clientIp(req('172.40.0.7', '203.0.113.9')), '203.0.113.9');
+  // Соседние сети заголовку не верят: там может стоять кто угодно.
+  assert.strictEqual(server.clientIp(req('172.40.1.7', '203.0.113.9')), '172.40.1.7');
+  assert.strictEqual(server.clientIp(req('172.41.0.7', '203.0.113.9')), '172.41.0.7');
+  // Прямой клиент с подделанным заголовком остаётся сам собой.
+  assert.strictEqual(server.clientIp(req('198.51.100.4', '203.0.113.9')), '198.51.100.4');
+});

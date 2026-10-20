@@ -425,12 +425,11 @@ function authOk(req, cfg) {
 }
 
 /**
- * Кто пришёл. За nginx это X-Forwarded-For, у него список цепочкой, берём
- * первый — исходный клиент. Прямому подключению без прокси header тоже есть
- * адрес, так что подмена значения на клиенте ничего не даёт: на сервис
- * снаружи не попасть.
+ * Сеть edge: Caddy на этой машине ходит в сервис с адресов 172.40.0.0/24.
+ * Только оттуда заголовку X-Real-IP верим. Порт в ufw открыт только для этой
+ * сети, так что снаружи до сервиса не достать.
  */
-const EDGE_NET = /^172\.40\.\d+\.\d+$/;
+const EDGE_NET = /^172\.40\.0\.\d+$/;
 
 function clientIp(req) {
   const remote = req.socket.remoteAddress || 'unknown';
@@ -645,6 +644,6 @@ if (require.main === module) {
   module.exports = {
     createServer, loadConfig, secretEquals, parseMultipart, safeName,
     // Наружу для тестов: уборку и перечисление файлов иначе нечем проверить.
-    sweep, listUploads, writeUpload, readMeta,
+    sweep, listUploads, writeUpload, readMeta, clientIp,
   };
 }
