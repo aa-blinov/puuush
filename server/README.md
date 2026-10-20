@@ -98,13 +98,13 @@ docker compose logs -f
 
 ```
 media.example.com {
-	handle /v1/* {
-		reverse_proxy 127.0.0.1:8099
-	}
-	handle_path /f/* {
-		root * /home/you/puuush/server/media
-		file_server
-	}
+    handle /v1/* {
+    	reverse_proxy 127.0.0.1:8099
+    }
+    handle_path /f/* {
+    	root * /home/you/puuush/server/media
+    	file_server
+    }
 }
 ```
 
@@ -166,11 +166,11 @@ sudo ufw allow in from 172.40.0.0/24 to any port 8099 proto tcp
 
 ```
 media-trashbox.duckdns.org {
-	handle /v1/* {
-		reverse_proxy host.docker.internal:8099 { import proxy_headers }
-	}
-	handle_path /f/* { root * /srv/media; file_server }
-	handle            { root * /srv/media; file_server }
+    handle /v1/* {
+    	reverse_proxy host.docker.internal:8099 { import proxy_headers }
+    }
+    handle_path /f/* { root * /srv/media; file_server }
+    handle            { root * /srv/media; file_server }
 }
 ```
 
