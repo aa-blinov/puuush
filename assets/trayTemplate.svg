@@ -1,0 +1,9 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Шаблонная иконка трея для macOS: только чёрный знак на прозрачном фоне.
+       Система перекрашивает её под светлое и тёмное меню сама. -->
+  <path d="M318 430V318H430" stroke="#000" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M594 318H706V430" stroke="#000" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M706 594V706H594" stroke="#000" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M430 706H318V594" stroke="#000" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="512" cy="512" r="96" fill="#000"/>
+</svg>

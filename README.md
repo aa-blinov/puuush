@@ -148,8 +148,9 @@ npm run dist:win     # установщик nsis, только на Windows
 npm run dist:linux   # AppImage и .deb
 ```
 
-Иконки лежат в `assets/` готовыми. Пересобрать: `npm run icons`, нужен
-python3 с numpy.
+Иконки лежат в `assets/` готовыми. Исходник один, `assets/icon.svg`, а
+`assets/trayTemplate.svg` для трея на macOS. Пересобрать PNG, ICO и ICNS:
+`npm run icons`. Нужен только Electron, он уже стоит после `npm ci`.
 
 ## Из командной строки
 
