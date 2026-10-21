@@ -445,7 +445,7 @@ function openSettings() {
       nodeIntegration: false,
     },
   });
-  settingsWin.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
   settingsWin.on('closed', () => { settingsWin = null; });
   return settingsWin;
 }
@@ -568,10 +568,6 @@ function registerIpc() {
       throw new Error('по адресу отвечает не puuush-сервер');
     }
     return info;
-  });
-  handle('puuush:choose-file', async () => {
-    const r = await dialog.showOpenDialog({ properties: ['openFile'] });
-    return r.canceled ? null : r.filePaths[0];
   });
   handle('puuush:choose-dir', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
@@ -750,7 +746,7 @@ async function runSelfTest() {
       try { fs.unlinkSync(file); } catch (e) { /* не мешает */ }
     }
 
-    const setErr = await checkRenderer('settings.html', `
+    const setErr = await checkRenderer('renderer/settings.html', `
       (function () {
         var h = document.getElementById('hotkey');
         var sel = document.getElementById('host');
@@ -765,7 +761,7 @@ async function runSelfTest() {
     step(setErr.length === 0, 'окно настроек',
       setErr.length ? setErr.join(' | ') : 'грузится без ошибок');
 
-    const ovErr = await checkRenderer('overlay.html',
+    const ovErr = await checkRenderer('renderer/overlay.html',
       `typeof window.puuush.submitRegion === 'function' ? '' : 'нет моста в preload'`);
     step(ovErr.length === 0, 'окно выбора области',
       ovErr.length ? ovErr.join(' | ') : 'грузится без ошибок');

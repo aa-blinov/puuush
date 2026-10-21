@@ -1,0 +1,82 @@
+/*
+ * Окно настроек.
+ *
+ * Киту принадлежат токены и компоненты, странице — тело окна: поля, ширина
+ * колонки и шрифт. Стили кита подключаются первыми, чтобы Tailwind-перезапись
+ * (preflight) не съела фон, цвет и шрифт страницы.
+ */
+@import '@monos/ui/styles.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Шрифт свой, из репозитория: приложение не ходит в сеть за шрифтами.
+   Наборы разделены по диапазонам Unicode, как их выпускает JetBrains. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../fonts/jetbrains-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../fonts/jetbrains-mono-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../fonts/jetbrains-mono-cyrillic-ext.woff2') format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C88, U+20B4, U+2DE1-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ui-bg);
+  color: var(--ui-ink);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--ui-ink);
+}
+
+/* Колонка настроек: узкая мера, чтобы длинные подсказки не тянулись во всю
+   ширину окна. */
+.page {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: var(--ui-space-roomy) var(--ui-space-roomy) var(--ui-space-section);
+}
+
+/* Длинный адрес ссылки должен переноситься, а не растягивать окно. */
+.break-url {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

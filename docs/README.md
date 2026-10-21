@@ -36,6 +36,7 @@ Changing the code: [architecture.md](architecture.md), then
 device pixels, the atomic write of the settings and the fallback order of
 the uploads, which are the parts that cost a rebuild to learn.
 
-Changing the look of the windows: [../DESIGN.md](../DESIGN.md) holds the
-tokens and the components, and the styles live in `src/settings.html` and
-`src/overlay.html`.
+Changing the look of the windows: [../DESIGN.md](../DESIGN.md) says what the
+app adds to the interface kit, and the components live in `renderer/`. The
+tokens, the themes and the components themselves come from the
+[monos-ui](https://github.com/aa-blinov/monos-ui) kit.

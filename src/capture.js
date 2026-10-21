@@ -125,7 +125,7 @@ function pickRegion(image, display, ratio) {
     // Если loadFile упадёт или окно почему-то не покажется, промис иначе
     // повиснет навсегда, флаг busy в main не сбросится, и хоткей перестанет
     // работать до перезапуска — молча, без единого сообщения.
-    win.loadFile(path.join(__dirname, 'overlay.html')).catch((e) => {
+    win.loadFile(path.join(__dirname, 'renderer', 'overlay.html')).catch((e) => {
       console.error('окно выбора не загрузилось:', e.message);
       finish(null);
     });

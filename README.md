@@ -21,6 +21,10 @@ npm start
 Node 22 and Electron 44. The app lives in the tray and has no main window.
 The hotkey and the tray menu are the whole interface.
 
+`npm start` builds the two windows first and then runs the app. The windows are
+built from `renderer/` into `src/renderer/`, and the built files stay out of
+git, so the installers are built from what the build produced.
+
 | Platform | Build | Artefact |
 | --- | --- | --- |
 | macOS | `npm run dist:mac` | `.dmg`, Apple silicon and Intel |
@@ -105,17 +109,30 @@ machine, and a second server in the hot path would only make it slower.
 ## Development
 
 ```bash
-npm ci          # install
-npm start       # run the app
-npm run cli     # run the app from the command line
-npm test        # run the tests
-npm run check   # tests, plus a syntax check of the three entry files
-npm run dist    # build for all three platforms
+npm ci                # install
+npm start             # build the windows, then run the app
+npm run cli           # run the app from the command line
+npm test              # run the tests
+npm run check         # build, svelte-check, tests, syntax check
+npm run test:electron # the checks that need a real Electron window
+npm run shots         # re-take the screenshots in this file
+npm run dist          # build for all three platforms
 ```
 
 `npm test` runs the Node test runner over `test/puuush.test.js` and
-`test/regressions.test.js`. `npm run check` adds `node --check` on
-`src/main.js`, `src/upload.js` and `server/index.js`, which is what CI runs.
+`test/regressions.test.js`. `npm run check` builds the windows, runs
+`svelte-check` over the components, adds `node --check` on `src/main.js`,
+`src/upload.js` and `server/index.js`, and that is what CI runs.
+
+`npm run test:electron` opens the real windows: the region picker has to
+confirm a frame with Enter, cancel with Esc, and must not publish the whole
+screen for a thin drag; the settings window has to write what the person
+chose to disk.
+
+The interface is built on the [monos-ui](https://github.com/aa-blinov/monos-ui)
+kit: Svelte 4, a Tailwind preset and a layer of tokens. The kit is not on npm
+yet, so it is installed straight from its repository, and `npm ci` fetches it
+from there.
 
 | Path | What it holds |
 | --- | --- |
@@ -123,6 +140,8 @@ npm run dist    # build for all three platforms
 | `src/capture.js` | The screen capture and the crop. |
 | `src/upload.js` | The upload targets and the fallback order. |
 | `src/store.js` | The settings file. |
+| `renderer/` | The sources of the two windows: Svelte, Tailwind, the kit. |
+| `src/renderer/` | The built windows. Not in git, built by `npm run build:renderer`. |
 | `server/index.js` | The upload receiver. |
 | `test/electron/` | The checks that need a real Electron window. |
 | `assets/` | The icons and the tray images. |

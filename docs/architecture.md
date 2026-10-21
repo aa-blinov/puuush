@@ -20,9 +20,10 @@ repository.
 | `src/capture.js` | The screen capture and the crop. It knows about display scaling and nothing else. |
 | `src/upload.js` | The upload targets, the fallback order and the file name rules. It knows nothing about Electron. |
 | `src/store.js` | The settings file, the history and what happens when the settings cannot be read. |
-| `src/overlay.html`, `src/overlay.js` | The region picker window. It draws the frame and reports the selection. |
+| `renderer/overlay/` | The sources of the region picker window: the frame, the size label and the selection. |
+| `renderer/settings/` | The sources of the settings window and its behaviour. |
+| `renderer/shared/` | What both windows share: the theme, the font and the page. |
 | `src/preload-overlay.js` | The preload of the region picker. |
-| `src/settings.html`, `src/settings.js` | The settings window and its behaviour. |
 | `src/preload.js` | The preload of the settings window. |
 | `server/index.js` | The upload receiver. `node:http` and nothing else. |
 | `server/config.example.json` | The server configuration, with the values filled in. |
@@ -30,6 +31,7 @@ repository.
 | `test/puuush.test.js`, `test/regressions.test.js` | The tests that do not need a window. |
 | `test/electron/` | The checks that need a real Electron window. |
 | `assets/` | The icons and the tray images. |
+| `src/renderer/` | The built windows. Not in git: `npm run build:renderer` builds them from `renderer/`. |
 
 ## The data flow
 
