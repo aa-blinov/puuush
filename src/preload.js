@@ -32,7 +32,6 @@ contextBridge.exposeInMainWorld('puuush', {
   verifyServer: (cfg) => ipcRenderer.invoke('puuush:verify-server', cfg),
 
   // --- файлы и загрузка ---
-  chooseFile: () => ipcRenderer.invoke('puuush:choose-file'),
   chooseDir: () => ipcRenderer.invoke('puuush:choose-dir'),
   uploadFile: (filePath) => ipcRenderer.invoke('puuush:upload-file', filePath),
   uploadClipboardImage: () => ipcRenderer.invoke('puuush:upload-clipboard-image'),

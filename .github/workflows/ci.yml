@@ -1,8 +1,8 @@
 name: ci
 
-# Install, test, build. Replace the commands with the stack's own; keep the
-# structure. The house-style check is a separate workflow, so that a failure
-# of the standard is visibly different from a failure of the code.
+# Install, test, build. The house-style check is a separate workflow, so
+# that a failure of the standard is visibly different from a failure of the
+# code.
 
 on:
   push:
@@ -24,20 +24,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Replace this block with the stack's toolchain.
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.12'
+          node-version: 22
+          cache: npm
 
       - name: Install
-        run: |
-          python3 -m pip install --upgrade pip
-          # pip install -e '.[dev]'
+        run: npm ci
 
       - name: Test
-        # run: python3 -m pytest -q
-        run: echo "Replace with the test command for this stack."
+        # The build of the windows, svelte-check over the components and the
+        # Node test runner.
+        run: npm run check
 
       - name: Build
-        # run: python3 -m build
-        run: echo "Replace with the build command for this stack."
+        # The two windows, built from renderer/ into src/renderer/.
+        run: npm run build:renderer
+
+      - name: Windows
+        # The windows have to work in a real Electron: the region picker has
+        # to confirm a frame and cancel, and the settings window has to write
+        # what was chosen to disk.
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+        run: xvfb-run -a npm run test:electron

@@ -6,6 +6,10 @@ node_modules/
 # собираются нативно на раннере каждой ОС.
 dist/
 
+# Собранный интерфейс окон (renderer/ -> src/renderer/). Исходники лежат в
+# renderer/, собирается всё через npm run build:renderer.
+src/renderer/
+
 # Логи и временное
 *.log
 npm-debug.log*

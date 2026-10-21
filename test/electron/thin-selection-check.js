@@ -36,7 +36,7 @@ app.whenReady().then(async () => {
     ipcMain.on('puuush:region',h);
     const w=new BrowserWindow({width:W,height:H,show:false,frame:false,transparent:true,
       webPreferences:{preload:path.join(SRC,'preload-overlay.js'),contextIsolation:true}});
-    w.loadFile(path.join(SRC,'overlay.html'));
+    w.loadFile(path.join(SRC,'renderer','overlay.html'));
     w.once('ready-to-show',()=>{
       w.webContents.send('puuush:frame',{dataUrl:frame.toDataURL(),width:W,height:H});
       setTimeout(async()=>{

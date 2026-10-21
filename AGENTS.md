@@ -12,14 +12,19 @@ This file is what you need to work on the project without reading all of it.
 npm ci          # install
 npm start       # run the app
 npm run cli     # run the app from the command line
-npm test        # the Node test runner, two files
-npm run check   # the tests, plus node --check on the three entry files
-npm run icons   # re-render the icons from assets/icon.svg
-npm run dist    # build for macOS, Windows and Linux
+npm test              # the Node test runner, two files
+npm run check         # build the windows, svelte-check, the tests
+npm run test:electron # the checks that need a real Electron window
+npm run build:renderer # build the two windows from renderer/
+npm run shots         # re-take the screenshots in the README
+npm run icons         # re-render the icons from assets/icon.svg
+npm run dist          # build for macOS, Windows and Linux
 ```
 
-Node 22 and Electron 44. There is no build step for the app itself:
-electron-builder produces the installers, and `npm run check` is what CI runs.
+Node 22 and Electron 44. The app itself has one build step: the two windows
+are built from `renderer/` into `src/renderer/` by Vite, and the built files
+stay out of git. Every step that starts the app or packs it builds the
+windows first, and `npm run check` is what CI runs.
 
 ## Where things live
 
@@ -30,6 +35,8 @@ electron-builder produces the installers, and `npm run check` is what CI runs.
 | `src/upload.js` | The upload targets, the fallback order, the file name rules. Knows nothing about Electron. |
 | `src/store.js` | The settings file, and what happens when it cannot be read. |
 | `src/preload-overlay.js` | The region picker's preload. The picker is a separate window. |
+| `renderer/` | The sources of the two windows: Svelte 4, Tailwind and the monos-ui kit. |
+| `src/renderer/` | The built windows. Not in git; built by `npm run build:renderer`. |
 | `server/index.js` | The upload receiver. `node:http` and nothing else, on purpose. |
 | `server/config.example.json` | The server configuration, with the values filled in. |
 | `server/puuush-server.service` | The systemd unit the server runs under. |
@@ -37,6 +44,18 @@ electron-builder produces the installers, and `npm run check` is what CI runs.
 | `assets/` | The icons, and the tray images. |
 
 ## Traps
+
+- **The windows are built, and the build is not optional.** `src/renderer/`
+  is not in git. A change to `renderer/` without a build leaves the app
+  showing the previous windows, and a packaging run without the build leaves
+  the package without any windows at all.
+- **The kit is not on npm.** It is installed from its repository, and
+  `npm ci` fetches it from there. Its components are Svelte sources, so the
+  Tailwind config has to scan `node_modules/@monos/ui/src` as well, or the
+  classes of the components never reach the stylesheet.
+- **A preload in a sandboxed window cannot read the disk.** It gets
+  `electron` and a handful of Node modules, and nothing else. Data for the
+  renderer comes over IPC.
 
 - **The crop is in device pixels, not pointer pixels.** `display.scaleFactor`
   is the wrong number on some setups, and `src/capture.js` says so in a

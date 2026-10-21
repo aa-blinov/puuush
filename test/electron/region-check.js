@@ -78,7 +78,7 @@ app.whenReady().then(async () => {
         },
       });
       ipcMain.on('puuush:region', onRegion);
-      w.loadFile(path.join(SRC, 'overlay.html'));
+      w.loadFile(path.join(SRC, 'renderer', 'overlay.html'));
       w.once('ready-to-show', () => {
         w.webContents.send('puuush:frame', { dataUrl: frame2.toDataURL(), width: W2, height: H2 });
         setTimeout(async () => {
