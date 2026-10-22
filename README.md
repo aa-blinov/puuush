@@ -4,6 +4,9 @@ Screenshot a region of the screen, upload it, and get the link in your
 clipboard. Press the hotkey, drag a frame, press Enter, and the link is
 already in the clipboard, ready to paste into a chat.
 
+The site with the pictures and the download table:
+[aa-blinov.github.io/puuush](https://aa-blinov.github.io/puuush/).
+
 ![The region picker](docs/ui-overlay.png)
 
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)

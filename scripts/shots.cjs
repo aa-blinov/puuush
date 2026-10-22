@@ -16,6 +16,8 @@ const { app, BrowserWindow, ipcMain, nativeTheme, screen } = require('electron')
 
 const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'docs');
+/** Картинки сайта: те же окна, но в том виде, в каком их видит человек. */
+const SITE_MEDIA = path.join(ROOT, 'site', 'media');
 const RENDERER = path.join(ROOT, 'src', 'renderer');
 const PRELOAD = path.join(__dirname, 'shots-preload.cjs');
 const OVERLAY_PRELOAD = path.join(__dirname, 'shots-overlay-preload.cjs');
@@ -61,10 +63,16 @@ function wait(ms) {
 }
 
 /**
- * Окно настроек целиком: сначала открываем его узким, потом расширяем по
- * содержимому, чтобы в кадр попал весь список, а не только верхний край.
+ * Окно настроек.
+ *
+ * Для README снимок идёт целиком: сначала открываем окно узким, потом
+ * расширяем по содержимому, чтобы в кадр попал весь список. Для сайта окно
+ * остаётся таким, какое оно есть: 720 на 700, и видно ровно то, что видит
+ * человек, открывший настройки.
  */
-async function shotSettings(name, next) {
+async function shotSettings(name, next, opts = {}) {
+  const dir = opts.dir || OUT;
+  const full = opts.full !== false;
   state = next;
 
   const win = new BrowserWindow({
@@ -92,20 +100,23 @@ async function shotSettings(name, next) {
   await win.loadFile(path.join(RENDERER, 'settings.html'));
   await wait(700);
 
-  const height = await win.webContents.executeJavaScript(
-    'Math.ceil(document.documentElement.scrollHeight)'
-  );
-  win.setBounds({ width: 720, height: Math.min(height, 4000) });
-  await wait(400);
-  // Полоса прокрутки в кадре — мусор: на снимке нужен весь список, а окно
-  // в приложении всё равно прокручивается.
-  await win.webContents.executeJavaScript(
-    "document.documentElement.style.overflow = 'hidden'; document.body.style.overflow = 'hidden';"
-  );
-  await wait(150);
+  if (full) {
+    const height = await win.webContents.executeJavaScript(
+      'Math.ceil(document.documentElement.scrollHeight)'
+    );
+    win.setBounds({ width: 720, height: Math.min(height, 4000) });
+    await wait(400);
+    // Полоса прокрутки в кадре — мусор: на снимке нужен весь список, а окно
+    // в приложении всё равно прокручивается.
+    await win.webContents.executeJavaScript(
+      "document.documentElement.style.overflow = 'hidden'; document.body.style.overflow = 'hidden';"
+    );
+    await wait(150);
+  }
 
   const image = await win.webContents.capturePage();
-  fs.writeFileSync(path.join(OUT, name), image.toPNG());
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), image.toPNG());
   win.destroy();
   if (errors.length) step(`  ОШИБКИ КОНСОЛИ (${name}): ${errors.join(' | ')}`);
   else step(`  ${name}: готово`);
@@ -117,7 +128,9 @@ async function shotSettings(name, next) {
  * Подложкой служит снимок настоящего окна с кодом: так видно, что рамка
  * выделяет область на чужом экране, а не на пустом листе.
  */
-async function shotOverlay() {
+async function shotOverlay(opts = {}) {
+  const dir = opts.dir || OUT;
+  const name = opts.name || 'ui-overlay.png';
   const { width: SCREEN_W, height: SCREEN_H } = screen.getPrimaryDisplay().size;
 
   const desktop = new BrowserWindow({
@@ -174,7 +187,8 @@ async function shotOverlay() {
   await wait(400);
 
   const image = await win.webContents.capturePage();
-  fs.writeFileSync(path.join(OUT, 'ui-overlay.png'), image.toPNG());
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), image.toPNG());
   win.destroy();
   if (errors.length) step(`  ОШИБКИ КОНСОЛИ (ui-overlay.png): ${errors.join(' | ')}`);
   else step('  ui-overlay.png: готово');
@@ -268,6 +282,21 @@ app.whenReady().then(async () => {
   });
 
   await shotOverlay();
+
+  // Картинки сайта: те же окна в том виде, в каком их видит человек.
+  await shotSettings('puuush-settings.png', {
+    settings: SETTINGS,
+    hosts: HOSTS,
+    history: [],
+  }, { dir: SITE_MEDIA, full: false });
+
+  await shotSettings('puuush-settings-ru.png', {
+    settings: { ...SETTINGS, lang: 'ru' },
+    hosts: HOSTS,
+    history: [],
+  }, { dir: SITE_MEDIA, full: false });
+
+  await shotOverlay({ dir: SITE_MEDIA, name: 'puuush-picker.png' });
 
   step('  всё снято');
   fs.copyFileSync(LOG, path.join(OUT, '.shots.log'));

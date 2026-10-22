@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Иконка puuush в линейке monos: тот же тёплый квадрат, золотая рамка и
+       точка-статус. Знак — рамка выделения области и зелёная точка «ссылка готова». -->
+  <defs>
+    <linearGradient id="bg" x1="184" y1="96" x2="840" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#302b24"/>
+      <stop offset="1" stop-color="#1d1d1b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(314 238) rotate(45) scale(640)">
+      <stop stop-color="#d8a657" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#d8a657" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="64" y="72" width="896" height="896" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="38" stdDeviation="42" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <rect x="96" y="96" width="832" height="832" rx="218" fill="url(#bg)"/>
+    <rect x="96" y="96" width="832" height="832" rx="218" fill="url(#glow)"/>
+    <rect x="118" y="118" width="788" height="788" rx="196" stroke="#d8a657" stroke-opacity=".62" stroke-width="28"/>
+    <path d="M318 430V318H430" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M594 318H706V430" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M706 594V706H594" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M430 706H318V594" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="512" cy="512" r="58" fill="#8ec07c"/>
+  </g>
+</svg>

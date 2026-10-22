@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>puuush: a screenshot of a region, and the link in your clipboard</title>
+  <meta name="description" content="Press the hotkey, drag a frame, and the picture is uploaded and the link is already in your clipboard. The app lives in the tray and can send the file to a server you own.">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#282828" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fbf1c7" media="(prefers-color-scheme: light)">
+  <meta property="og:title" content="puuush">
+  <meta property="og:description" content="Screenshot a region, upload it, and get the link in your clipboard.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="media/puuush-picker.png">
+  <link rel="icon" href="media/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="puuush, back to the top">
+        <img class="brand-mark" src="media/icon.svg" alt="" width="22" height="22">
+        <span>puuush</span>
+      </a>
+      <nav class="site-nav" aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="#server">Your server</a>
+        <a href="#languages">Languages</a>
+        <a href="#cli">Command line</a>
+        <a href="#install">Install</a>
+      </nav>
+      <a class="header-github" href="https://github.com/aa-blinov/puuush">GitHub</a>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <section class="hero wrap" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">Screenshot a region, get the link, paste it.</h1>
+        <p class="lede">Press the hotkey, drag a frame, and the picture is uploaded and the link is already in your clipboard. The app lives in the tray, has no window of its own, and can send the file to a server you own.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/aa-blinov/puuush/releases/latest">Download the latest release</a>
+          <a class="button button-ghost" href="#how">How it works</a>
+        </div>
+        <p class="fine">Free and MIT licensed. Builds for macOS, Windows and Linux. English by default, Russian when you want it.</p>
+      </div>
+
+      <figure class="shot">
+        <img src="media/puuush-picker.png" width="1280" height="900" alt="The region picker over a screen with an editor open: the screen is dimmed, a frame marks the chosen area, and the size of the selection is printed above it.">
+      </figure>
+    </section>
+
+    <section class="section wrap" id="how" aria-labelledby="how-title">
+      <h2 id="how-title">Three seconds from the hotkey to the clipboard.</h2>
+      <ol class="flow">
+        <li><span>hotkey</span></li>
+        <li><span>screen capture</span></li>
+        <li><span>the frame you dragged</span></li>
+        <li><span>upload</span></li>
+        <li><span>link in the clipboard</span></li>
+      </ol>
+      <p>The capture is cut in device pixels rather than in the scaled coordinates the pointer reports, so a Retina display keeps its full resolution in the uploaded file. Every upload is checked with a real request before the link is copied: a link that does not serve the file never reaches the clipboard.</p>
+      <ul class="rail">
+        <li>
+          <h3>Nothing runs in the background.</h3>
+          <p>The app sits in the tray and does nothing until the hotkey. There is no window to look at and no account to log into.</p>
+        </li>
+        <li>
+          <h3>The frame is yours.</h3>
+          <p>Drag a rectangle, press <kbd>Enter</kbd>. A click without a drag takes the whole screen, and <kbd>Esc</kbd> cancels.</p>
+        </li>
+        <li>
+          <h3>Nothing huge leaves the machine.</h3>
+          <p>A file over 64 MiB is refused before it is sent, and the local copy is deleted unless you asked to keep it.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="section wrap" id="server" aria-labelledby="server-title">
+      <h2 id="server-title">Your server first, a public host only if it is down.</h2>
+      <p>Point the app at a server you run and the file lands on your own domain. The write key travels in the <code>Authorization</code> header, never in the URL, so it does not end up in the access log of every proxy in front of the server. When your server refuses the file, the upload falls back to catbox, then pomf2, then uguu, and the interface says which one served the last link.</p>
+      <figure class="shot narrow">
+        <img src="media/puuush-settings.png" width="720" height="700" loading="lazy" alt="The settings window: the language, the hotkey, the upload target with the own server address and write key, and the behaviour toggles.">
+        <figcaption>The settings window: the hotkey, the target, and where the file goes.</figcaption>
+      </figure>
+      <h3>The server is a small program with no dependencies.</h3>
+      <p>The server side is Node and nothing else: it accepts <code>POST /v1/uploads</code>, keeps a ledger, and deletes what grew too old. Caddy serves the files. Updating it means copying one file and restarting a service, so it has no package manager in the middle and nothing to reinstall.</p>
+      <div class="table-wrap" role="region" aria-label="Where the file goes" tabindex="0">
+        <table>
+          <thead>
+            <tr><th scope="col">Mode</th><th scope="col">Where the file goes</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Your own server</th><td>Your domain, and nowhere else. The upload fails loudly if the server does.</td></tr>
+            <tr><th scope="row">Auto</th><td>Your own server first, then the public hosts, in that order.</td></tr>
+            <tr><th scope="row">A public host</th><td>catbox, pomf2 or uguu, and the window says so in plain words.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section wrap" id="languages" aria-labelledby="languages-title">
+      <h2 id="languages-title">English by default, Russian when you want it.</h2>
+      <p>The language is a setting, and it covers the whole application: the tray menu, the notifications, the command line and both windows. English is what the app opens in; Russian is one click away in the settings, and the choice is kept with the rest of the settings.</p>
+      <div class="pair">
+        <figure class="shot">
+          <img src="media/puuush-settings.png" width="720" height="700" loading="lazy" alt="The settings window in English, with the language switch at the top showing English selected.">
+          <figcaption>English, the default.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="media/puuush-settings-ru.png" width="720" height="700" loading="lazy" alt="The same settings window in Russian, with the language switch showing Russian selected.">
+          <figcaption>The same window in Russian.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section wrap" id="cli" aria-labelledby="cli-title">
+      <h2 id="cli-title">The same thing from a script.</h2>
+      <p>There is a command line mode for the machines without a screen and for the scripts that should not open a window. It prints the link and nothing else, so it pipes into anything.</p>
+      <div class="command">
+        <pre><code>puuush --cli ~/Desktop/screen.png</code></pre>
+        <button class="button button-ghost" type="button" data-copy="puuush --cli ~/Desktop/screen.png">Copy the command</button>
+      </div>
+      <p>The mode refuses to upload when the settings file cannot be read. A broken settings file means the upload target is unknown, and an unknown target is exactly the case where a screenshot would quietly leave the machine.</p>
+    </section>
+
+    <section class="section wrap" id="install" aria-labelledby="install-title">
+      <h2 id="install-title">Install</h2>
+      <p class="lede">Download the installer for your system from the <a href="https://github.com/aa-blinov/puuush/releases/latest">latest release</a>. The app keeps its settings in the usual application data folder, and they survive an update.</p>
+      <div class="table-wrap" role="region" aria-label="Download artefacts" tabindex="0">
+        <table>
+          <thead>
+            <tr><th scope="col">Platform</th><th scope="col">Artefact</th><th scope="col">First launch</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">macOS</th><td><code>.dmg</code>, Apple silicon and Intel</td><td>The app is not notarized, so macOS asks once.</td></tr>
+            <tr><th scope="row">Windows</th><td>NSIS installer, <code>.exe</code></td><td>SmartScreen asks once.</td></tr>
+            <tr><th scope="row">Linux</th><td><code>.AppImage</code> and <code>.deb</code></td><td>Nothing to confirm.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>What you get, and where it lives.</h3>
+      <div class="table-wrap" role="region" aria-label="What you get and where it lives" tabindex="0">
+        <table>
+          <tbody>
+            <tr><th scope="row">Platforms</th><td>macOS on Apple Silicon and Intel, Windows, and Linux as an AppImage or a <code>.deb</code> package.</td></tr>
+            <tr><th scope="row">Where it lives</th><td>The settings and the local copies of screenshots stay in your operating system's application data folder.</td></tr>
+            <tr><th scope="row">Your server</th><td>Optional. The same program accepts uploads on <code>POST /v1/uploads</code> and needs nothing but Node.</td></tr>
+            <tr><th scope="row">Languages</th><td>English and Russian.</td></tr>
+            <tr><th scope="row">Licence</th><td>MIT. Read the source, report a problem, or build it yourself.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <p>puuush is free and open source, MIT licensed. © 2026 aa-blinov. The picture leaves your machine only when you ask for it.</p>
+      <nav class="footer-nav" aria-label="Project links">
+        <a href="https://github.com/aa-blinov/puuush">Source</a>
+        <a href="https://github.com/aa-blinov/puuush#readme">README</a>
+        <a href="https://github.com/aa-blinov/puuush/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/aa-blinov/puuush/releases">Releases</a>
+        <a href="https://github.com/aa-blinov/puuush/issues">Issues</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="site.js" defer></script>
+</body>
+</html>

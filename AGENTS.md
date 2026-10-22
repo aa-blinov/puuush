@@ -42,6 +42,7 @@ windows first, and `npm run check` is what CI runs.
 | `server/puuush-server.service` | The systemd unit the server runs under. |
 | `test/electron/` | The checks that need a real Electron window. |
 | `assets/` | The icons, and the tray images. |
+| `site/` | The published site. It is plain HTML and CSS, and GitHub Pages serves it as it is. |
 
 ## Traps
 
@@ -63,6 +64,10 @@ windows first, and `npm run check` is what CI runs.
 - **Язык по умолчанию английский**, а русский человек включает в настройках.
   Выбор лежит в `settings.json` рядом с остальными, и главный процесс
   переключает язык на лету, когда окно его меняет.
+- **Сайт лежит в `site/` и публикуется сам.** Это обычные HTML и CSS без
+  сборки: workflow `pages.yml` отдаёт каталог `site/` как есть. Картинки для
+  сайта снимает `npm run shots` вместе с картинками для README, и лежат они
+  в `site/media/`.
 - **Свой сервер внутри зовётся `own`.** Раньше он звался «свой box», и
   главный процесс узнавал о его сбое по совпадению в тексте. С переводом
   текст перестал быть надёжным признаком, и сбой теперь помечается на самой
