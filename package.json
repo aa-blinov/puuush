@@ -1,6 +1,9 @@
 {
   "name": "puuush",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "Скриншот области -> загрузка -> ссылка в буфере обмена",
   "homepage": "https://github.com/aa-blinov/puuush",
   "main": "src/main.js",
