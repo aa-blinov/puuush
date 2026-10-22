@@ -95,6 +95,11 @@ jobs:
       # шага в пакете не будет ни настроек, ни выбора области.
       - run: npm run build:renderer
       - run: npm run ${{ matrix.script }}
+      # Сборка macOS проверяет образ сама: если он битый, джоба падает и
+      # релиз не выходит, вместо того чтобы ломаться у человека.
+      - name: Проверка образа
+        if: matrix.name != 'linux' && matrix.name != 'windows'
+        run: node scripts/check-dmg.cjs dist
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
