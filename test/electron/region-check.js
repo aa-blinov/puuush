@@ -12,8 +12,25 @@
  */
 const path = require('path');
 const { app, BrowserWindow, ipcMain, nativeImage } = require('electron');
-const SRC = '/home/ubuntu/pet/puuush/src';
+// Путь к приложению считается от файла теста, а не пишется руками: с
+// зашитым путём тест молча падал на чужой машине, и проверка в CI висела
+// до конца запуска, потому что исключение было необработанным.
+const SRC = path.join(__dirname, '..', '..', 'src');
 app.on('window-all-closed', () => {});
+/**
+ * Проверка, которая висит, хуже проверки, которая падает: падение видно
+ * сразу, а ожидание не видно никогда. Поэтому необработанная ошибка и
+ * истечение времени ведут к ненулевому коду выхода.
+ */
+process.on('unhandledRejection', (e) => {
+  console.error('  ПРОВАЛ необработанная ошибка: ' + (e && e.message ? e.message : e));
+  process.exit(1);
+});
+setTimeout(() => {
+  console.error('  ПРОВАЛ: проверка не уложилась в две минуты');
+  process.exit(1);
+}, 120000).unref?.();
+
 
 app.whenReady().then(async () => {
   const { captureTo } = require(path.join(SRC, 'capture.js'));
