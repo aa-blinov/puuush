@@ -3,42 +3,138 @@ name: release
 # Tag-triggered release. A tag of v* produces a release with the artefacts
 # the project ships, and the changelog section for that version becomes the
 # release body.
-
+#
+# Три платформы собираются нативно на своих раннерах: electron-builder не
+# умеет кросс-сборку, .dmg собирается только на macOS, а .exe — только на
+# Windows. Релиз собирается из того, что собрали эти job'ы: файлы складываются
+# в выдачу джобы и скачиваются в джобе релиза.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release, for example v1.1.0. Leave empty to build without publishing.
+        required: false
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: Release
-    runs-on: ubuntu-latest
+  verify:
+    name: Проверка версии
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v7
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v7
         with:
-          python-version: '3.12'
-
-      - name: Extract the version
+          node-version: 22
+      - name: Сверка тега с версией в package.json
         id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building $VERSION"
+          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${TAG#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::тег $TAG и версия в package.json $PKG разошлись"
+            exit 1
+          fi
+          echo "version=$PKG" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Выпускаем $PKG"
 
-      - name: Build
-        # Replace with the real build. The rule is that the artefact that
-        # ships is produced by the same command the README documents.
-        run: echo "Replace with the build command for this stack."
+  build:
+    name: Сборка ${{ matrix.name }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-24.04
+            script: dist:linux
+            artifact: puuush-linux
+            paths: |
+              dist/*.AppImage
+              dist/*.deb
+          - name: windows
+            os: windows-latest
+            script: dist:win
+            artifact: puuush-windows
+            paths: |
+              dist/*.exe
+          - name: macos-arm64
+            os: macos-15
+            script: dist:mac:arm64
+            artifact: puuush-macos-arm64
+            paths: |
+              dist/*.dmg
+          - name: macos-x64
+            os: macos-15-intel
+            script: dist:mac:x64
+            artifact: puuush-macos-x64
+            paths: |
+              dist/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.verify.outputs.version }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Окна интерфейса собираются из renderer/ в src/renderer/: без этого
+      # шага в пакете не будет ни настроек, ни выбора области.
+      - run: npm run build:renderer
+      - run: npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.paths }}
+          # Пустая выдача означает, что сборка не вышла: молчаливый релиз без
+          # файла хуже, чем упавший.
+          if-no-files-found: error
 
-      - name: Publish
+  release:
+    name: Релиз
+    needs: [verify, build]
+    # Публикуем только по тегу. Ручной запуск без тега собирает пакеты, но
+    # релиз не создаёт: тег — это версия, а не кнопка.
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.verify.outputs.version }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Заметки релиза
+        run: node scripts/release-notes.cjs "${{ needs.verify.outputs.version }}" > release-notes.md
+
+      - name: Опубликовать релиз
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
-          body_path: CHANGELOG.md
+          tag_name: v${{ needs.verify.outputs.version }}
+          name: puuush v${{ needs.verify.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            release-artifacts/*.exe
+            release-artifacts/*.dmg
+            release-artifacts/*.AppImage
+            release-artifacts/*.deb
+          fail_on_unmatched_files: true

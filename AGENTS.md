@@ -19,6 +19,8 @@ npm run build:renderer # build the two windows from renderer/
 npm run shots         # re-take the screenshots in the README
 npm run icons         # re-render the icons from assets/icon.svg
 npm run dist          # build for macOS, Windows and Linux
+npm run dist:linux    # build one platform
+npm run release:notes 1.1.0  # the release notes of a version
 ```
 
 Node 22 and Electron 44. The app itself has one build step: the two windows
@@ -44,7 +46,26 @@ windows first, and `npm run check` is what CI runs.
 | `assets/` | The icons, and the tray images. |
 | `site/` | The published site. It is plain HTML and CSS, and GitHub Pages serves it as it is. |
 
+## Releases
+
+A tag of `v*` builds the installers for all three platforms and publishes them
+on the releases page. The workflow is `.github/workflows/release.yml`: it
+checks the tag against the version in `package.json`, builds on the runner of
+each platform (electron-builder cannot cross-build), and publishes the files
+with the matching section of `CHANGELOG.md` as the body.
+
 ## Traps
+
+- **Версия в теге и в package.json должны совпадать.** Workflow проверяет это
+  сам и останавливается, если они разошлись: релиз с чужим номером хуже,
+  чем никакого.
+- **Сборка идёт нативно на своей ОС.** `.dmg` собирается только на macOS, а
+  `.exe` только на Windows, и обе архитектуры macOS — на своих раннерах.
+  Кросс-сборка electron-builder не умеет.
+- **Подпись есть только у сборок, которые кто-то подписал.** Сейчас её нет:
+  macOS спросит про незнакомого разработчика, Windows — про SmartScreen, и
+  оба раза это снимается одним кликом. Автообновление без подписи не
+  приедет, поэтому его и нет.
 
 - **The windows are built, and the build is not optional.** `src/renderer/`
   is not in git. A change to `renderer/` without a build leaves the app

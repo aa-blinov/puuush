@@ -10,33 +10,45 @@ The site with the pictures and the download table:
 ![The region picker](docs/ui-overlay.png)
 
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Build](https://github.com/aa-blinov/puuush/actions/workflows/build.yml/badge.svg)](https://github.com/aa-blinov/puuush/actions/workflows/build.yml)
+[![CI](https://github.com/aa-blinov/puuush/actions/workflows/ci.yml/badge.svg)](https://github.com/aa-blinov/puuush/actions/workflows/ci.yml)
 
 ---
 
 ## Quick start
+
+Download the installer for your system from the
+[latest release](https://github.com/aa-blinov/puuush/releases/latest):
+
+| Platform | File | How to install |
+| --- | --- | --- |
+| Linux | `.AppImage` | `chmod +x puuush-*.AppImage` and run it, or take the `.deb` and install it with your package manager. |
+| macOS | `.dmg` | Open it and drag the app into Applications. Two files: one for Apple silicon, one for Intel. |
+| Windows | `.exe` | Run the installer. It asks where to put the app, and the default is fine. |
+
+The builds are unsigned, so the operating system asks before it opens the
+file. On macOS that is System Settings, Privacy and Security, then Open
+Anyway. On Windows it is More info, then Run anyway.
+
+The app lives in the tray and has no main window. The hotkey and the tray
+menu are the whole interface.
+
+To run it from the source instead:
 
 ```bash
 npm ci
 npm start
 ```
 
-Node 22 and Electron 44. The app lives in the tray and has no main window.
-The hotkey and the tray menu are the whole interface.
-
-`npm start` builds the two windows first and then runs the app. The windows are
-built from `renderer/` into `src/renderer/`, and the built files stay out of
-git, so the installers are built from what the build produced.
+Node 22 and Electron 44. `npm start` builds the two windows first and then
+runs the app. The windows are built from `renderer/` into `src/renderer/`,
+and the built files stay out of git, so the installers are built from what
+the build produced.
 
 | Platform | Build | Artefact |
 | --- | --- | --- |
 | macOS | `npm run dist:mac` | `.dmg`, Apple silicon and Intel |
 | Windows | `npm run dist:win` | NSIS installer, x64 |
 | Linux | `npm run dist:linux` | AppImage and `.deb` |
-
-The builds are unsigned, so the operating system asks before it opens the
-file. On macOS that is System Settings, Privacy and Security, then Open
-Anyway.
 
 ## What it does
 
@@ -126,6 +138,7 @@ npm run check         # build, svelte-check, tests, syntax check
 npm run test:electron # the checks that need a real Electron window
 npm run shots         # re-take the screenshots in this file
 npm run dist          # build for all three platforms
+npm run release:notes 1.1.0   # the release notes of a version
 ```
 
 `npm test` runs the Node test runner over `test/puuush.test.js` and
@@ -142,6 +155,15 @@ The interface is built on the [monos-ui](https://github.com/aa-blinov/monos-ui)
 kit: Svelte 4, a Tailwind preset and a layer of tokens. The kit is not on npm
 yet, so it is installed straight from its repository, and `npm ci` fetches it
 from there.
+
+### Releases
+
+A tag of `v*` builds the installers for all three platforms on their own
+runners and publishes them on the
+[releases page](https://github.com/aa-blinov/puuush/releases). The version in
+the tag has to match the version in `package.json`, and the release body is the
+matching section of `CHANGELOG.md`, so the notes and the build cannot drift
+apart. The workflow is `.github/workflows/release.yml`.
 
 The words of the interface live in `src/locales/en.json` and
 `src/locales/ru.json`, one dictionary for the whole application: the tray,
