@@ -13,6 +13,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { desktopCapturer, screen, BrowserWindow, nativeImage } = require('electron');
+const { t, getLang } = require('./i18n');
 
 /** Экран, на котором сейчас курсор. */
 function displayUnderCursor() {
@@ -31,23 +32,19 @@ async function grabDisplay(display) {
     thumbnailSize: size,
     fetchWindowIcons: false,
   });
-  if (!sources.length) throw new Error('не удалось получить список экранов');
+  if (!sources.length) throw new Error(t('capture.noDisplays'));
 
   // Ищем именно тот экран, где стоит курсор. Раньше при несовпадении
   // брался sources[0], то есть первый попавшийся: на двух мониторах окно
   // выбора открывалось на одном экране, а резался снимок другого. Молча.
   const src = sources.find((s) => String(s.display_id) === String(display.id));
   if (!src) {
-    const seen = sources.map((s) => s.display_id || '(пусто)').join(', ');
-    throw new Error(
-      `не нашёл экран ${display.id} среди источников (есть: ${seen}). ` +
-      'На двух мониторах это иногда значит, что снимок взялся бы не с того ' +
-      'экрана, где выбираешь область'
-    );
+    const seen = sources.map((s) => s.display_id || t('capture.empty')).join(', ');
+    throw new Error(t('capture.screenNotFound', { id: display.id, seen }));
   }
 
   const image = src.thumbnail;
-  if (!image || image.isEmpty()) throw new Error('экран вернул пустой снимок');
+  if (!image || image.isEmpty()) throw new Error(t('capture.emptyShot'));
 
   // Масштаб берём не из display.scaleFactor, а из фактического размера кадра.
   // Запрашиваемый размер и пришедший совпадают не всегда: на Linux с
@@ -126,7 +123,7 @@ function pickRegion(image, display, ratio) {
     // повиснет навсегда, флаг busy в main не сбросится, и хоткей перестанет
     // работать до перезапуска — молча, без единого сообщения.
     win.loadFile(path.join(__dirname, 'renderer', 'overlay.html')).catch((e) => {
-      console.error('окно выбора не загрузилось:', e.message);
+      console.error(t('capture.windowNotLoaded'), e.message);
       finish(null);
     });
 
@@ -135,7 +132,7 @@ function pickRegion(image, display, ratio) {
     // дольше минуты, исчезает, и Enter после этого не делает ничего.
     let guard = setTimeout(() => {
       guard = null;
-      console.error('окно выбора не показалось за минуту, отменяю');
+      console.error(t('capture.windowTimeout'));
       finish(null);
     }, 60_000);
     if (guard.unref) guard.unref();
@@ -148,6 +145,9 @@ function pickRegion(image, display, ratio) {
         dataUrl: image.toDataURL(),
         width: display.bounds.width,
         height: display.bounds.height,
+        // Язык окна едет вместе со снимком: окно открывается на секунды, и
+        // отдельный запрос за языком успел бы прийти позже, чем первый кадр.
+        lang: getLang(),
       });
     });
   });
@@ -198,7 +198,7 @@ async function captureTo(dir) {
   if (!rect) return null;
 
   const cut = image.crop(rect);
-  if (cut.isEmpty()) throw new Error('выбранная область пустая');
+  if (cut.isEmpty()) throw new Error(t('capture.emptyRegion'));
 
   const name = `shot-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`;
   const file = path.join(dir, name);

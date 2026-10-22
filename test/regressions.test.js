@@ -21,6 +21,7 @@ const Module = require('node:module');
 const crypto = require('node:crypto');
 
 const upload = require('../src/upload.js');
+const { t } = require('../src/i18n.js');
 const server = require('../server/index.js');
 
 /** Ставит заглушку electron и даёт изолированный каталог настроек. */
@@ -138,12 +139,15 @@ test('http разрешён только настоящему loopback, а не 
 
 test('validateOwn отвергает нелатинский ключ и мусорный адрес', () => {
   const key = 'a'.repeat(64);
+  // Тексты берутся из словаря: проверка не должна ломаться от перевода.
   assert.match(upload.validateOwn({ base_url: 'https://x.test', write_key: 'ключ по русски' }),
-    /нелатинские/);
+    new RegExp(t('own.keyNotAscii')));
   assert.match(upload.validateOwn({ base_url: 'https://x.test', write_key: 'ключ с пробелами' }),
-    /нелатинские|пробелы/);
-  assert.match(upload.validateOwn({ base_url: 'не адрес', write_key: key }), /нечитаемый/);
-  assert.match(upload.validateOwn({ base_url: 'ftp://x.test', write_key: key }), /http/);
+    new RegExp(t('own.keyNotAscii')));
+  assert.match(upload.validateOwn({ base_url: 'не адрес', write_key: key }),
+    new RegExp(t('own.unreadable')));
+  assert.match(upload.validateOwn({ base_url: 'ftp://x.test', write_key: key }),
+    new RegExp(t('own.notHttp')));
   assert.strictEqual(upload.validateOwn({ base_url: 'https://x.test', write_key: key }), '');
 });
 

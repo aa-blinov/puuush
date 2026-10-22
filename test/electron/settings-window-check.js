@@ -42,7 +42,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('puuush:save-settings', (_e, patch) => store.setSettings(patch || {}));
   ipcMain.handle('puuush:get-history', () => store.getHistory());
   ipcMain.handle('puuush:clear-history', () => store.clearHistory());
-  ipcMain.handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, label: h.label, temp: h.temp })));
+  ipcMain.handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, temp: h.temp })));
+  // Синхронный ответ на язык: окно спрашивает его до первой отрисовки.
+  ipcMain.on('puuush:lang', (e) => { e.returnValue = store.getSettings().lang; });
 
   const win = new BrowserWindow({
     width: 720,
@@ -103,7 +105,7 @@ app.whenReady().then(async () => {
   step(afterHost.value === 'catbox', 'хостинг переключился', afterHost.value);
   step(afterHost.ownVisible === 'none', 'свой сервер спрятан в публичном режиме', afterHost.ownVisible);
   step(
-    afterHost.text.includes('публичный хостинг'),
+    afterHost.text.includes('public host'),
     'предупреждение о публичном хостинге',
     ''
   );
@@ -138,10 +140,53 @@ app.whenReady().then(async () => {
 
   const afterAuto = await run(`document.body.innerText`);
   step(
-    afterAuto.includes('публичный внешний хостинг'),
+    afterAuto.includes('public host'),
     'без ключа приложение предупреждает про внешний хостинг',
     ''
   );
+
+  // --- язык -----------------------------------------------------------
+  // По умолчанию английский: окно открывается на нём, даже если в системе
+  // русская локаль. Русский включается человеком.
+  // textContent, а не innerText: innerText отдаёт текст так, как он нарисован,
+  // то есть с капителью, а заголовки разделов набраны капсом.
+  const defaultLang = await run(`document.body.textContent`);
+  step(
+    defaultLang.includes('Settings.') && !defaultLang.includes('Настройки.'),
+    'по умолчанию английский',
+    ''
+  );
+
+  const buttons = await run(
+    `Array.from(document.querySelectorAll('[role="group"] button')).map((b) => b.textContent.trim())`
+  );
+  step(buttons.length === 2, 'переключатель языка на месте', JSON.stringify(buttons));
+
+  await run(`(function () {
+    var b = Array.from(document.querySelectorAll('[role="group"] button'))
+      .find((x) => x.textContent.trim() === 'Русский');
+    if (b) b.click();
+  })()`);
+  await new Promise((r) => setTimeout(r, 700));
+
+  const afterLang = await run(`document.body.textContent`);
+  step(
+    afterLang.includes('Настройки.') && afterLang.includes('Горячая клавиша'),
+    'русский включается на лету',
+    ''
+  );
+  step(store.getSettings().lang === 'ru', 'язык записан на диск', store.getSettings().lang);
+
+  // Обратно на английский: окно не должно остаться в прошлом языке.
+  await run(`(function () {
+    var b = Array.from(document.querySelectorAll('[role="group"] button'))
+      .find((x) => x.textContent.trim() === 'English');
+    if (b) b.click();
+  })()`);
+  await new Promise((r) => setTimeout(r, 700));
+  const back = await run(`document.body.textContent`);
+  step(back.includes('Settings.') && store.getSettings().lang === 'en',
+    'обратно на английский', store.getSettings().lang);
 
   // --- галочки -------------------------------------------------------
   await run(`(function () {

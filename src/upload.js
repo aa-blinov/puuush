@@ -18,6 +18,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { isIP } = require('node:net');
+const { t } = require('./i18n');
 
 // Браузерный заголовок обязателен: без него catbox отвечает отказом на запрос,
 // который не похож на браузерный, и ссылка выглядит битой.
@@ -28,7 +29,6 @@ const UA =
 const HOSTS = [
   {
     name: 'catbox',
-    label: 'catbox — постоянно',
     url: 'https://catbox.moe/user/api.php',
     fields: { reqtype: 'fileupload' },
     fileField: 'fileToUpload',
@@ -36,7 +36,6 @@ const HOSTS = [
   },
   {
     name: 'pomf2',
-    label: 'pomf2.lain.la — постоянно',
     url: 'https://pomf2.lain.la/upload.php',
     fields: {},
     fileField: 'files[]',
@@ -45,7 +44,6 @@ const HOSTS = [
   },
   {
     name: 'uguu',
-    label: 'uguu.se — на несколько часов',
     url: 'https://uguu.se/upload.php',
     fields: {},
     fileField: 'files[]',
@@ -99,7 +97,7 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
       try {
         u = new URL(target);
       } catch (e) {
-        return reject(new Error('плохой адрес: ' + target));
+        return reject(new Error(t('upload.badUrl', { error: target })));
       }
       const lib = u.protocol === 'http:' ? http : https;
       const req = lib.request(
@@ -113,7 +111,7 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
             if (headers.Authorization) {
               res.resume();
               return reject(new Error(
-                'сервер ответил редиректом на другой адрес, запрос с ключом не повторяем'
+                t('upload.redirect')
               ));
             }
             let next;
@@ -123,11 +121,11 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
               // Раньше эта ошибка бросалась из обработчика ответа и уносила
               // процесс. Редирект на file:///etc/passname ронял процесс целиком.
               res.resume();
-              return reject(new Error('сервер ответил редиректом на нечитаемый адрес'));
+              return reject(new Error(t('upload.redirectUnreadable')));
             }
             if (!/^https?:$/i.test(new URL(next).protocol)) {
               res.resume();
-              return reject(new Error('сервер ответил редиректом на не-http адрес'));
+              return reject(new Error(t('upload.redirectNotHttp')));
             }
             res.resume();
             return send(next, left - 1);
@@ -163,7 +161,7 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
             if (out.length >= maxBytes) {
               // Потолок достигнут и останавливать рано: продолжать качать
               // незачем, соединение рвём.
-              finish(reject, Object.assign(new Error('ответ больше лимита'), { tooBig: true }));
+              finish(reject, Object.assign(new Error(t('upload.tooLarge')), { tooBig: true }));
               res.destroy();
             }
           });
@@ -174,9 +172,9 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
           // Сервер объявил Content-Length и оборвал соединение после заголовков.
           // Без этого обработчика событие end не наступает и промис живёт вечно:
           // загрузка застревает, а флаги busy и uploading не сбрасываются.
-          res.on('aborted', () => finish(reject, new Error('соединение оборвано')));
+          res.on('aborted', () => finish(reject, new Error(t('upload.connDropped'))));
           res.on('close', () => {
-            if (!done) finish(reject, new Error('соединение закрыто раньше конца ответа'));
+            if (!done) finish(reject, new Error(t('upload.connClosed')));
           });
         }
       );
@@ -184,11 +182,11 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
       // сервер, шлющий данные без пауз, держал бы нас вечно. Отдельный
       // предельный таймер ограничивает длительность целиком.
       const deadline = setTimeout(
-        () => req.destroy(new Error('превышено время ожидания')),
+        () => req.destroy(new Error(t('upload.timeout'))),
         timeout
       );
       deadline.unref?.();
-      req.setTimeout(timeout, () => req.destroy(new Error('превышено время ожидания')));
+      req.setTimeout(timeout, () => req.destroy(new Error(t('upload.timeout'))));
       req.on('error', reject);
       if (body) req.write(body);
       req.end();
@@ -236,40 +234,52 @@ function isLoopback(hostname) {
  * расхождение правил означало бы зелёную галочку там, где загрузка упадёт.
  */
 function validateOwn({ base_url: base, write_key: key } = {}) {
-  if (!base || !key) return 'сервер или ключ не заполнены';
+  if (!base || !key) return t('own.notFilled');
   let parsed;
   try {
     parsed = new URL(base);
   } catch (e) {
-    return 'адрес нечитаемый';
+    return t('own.unreadable');
   }
-  if (!/^https?:$/i.test(parsed.protocol)) return 'адрес должен быть http или https';
+  if (!/^https?:$/i.test(parsed.protocol)) return t('own.notHttp');
   // По http ключ летел бы открытым текстом. Локальный адрес — исключение,
   // там TLS всё равно некуда вешать. Проверяем настоящий loopback, а не
   // начало строки: через «127.» проходил домен 127.attacker.example.
   if (!/^https:$/i.test(parsed.protocol) && !isLoopback(parsed.hostname)) {
-    return 'нужен https, ключ не должен идти открытым текстом';
+    return t('own.needHttps');
   }
   // Node бросает сырое «Invalid character in header content», если в
   // заголовок попал хоть один символ вне ASCII. Проверяем заранее.
   if (/[^\x21-\x7e]/.test(key)) {
-    return 'в ключе есть нелатинские символы или пробелы';
+    return t('own.keyNotAscii');
   }
   return '';
+}
+
+/**
+ * Ошибка своего сервера.
+ *
+ * Помечена, чтобы главный процесс узнал о сбое по факту, а не по совпадению
+ * в тексте: текст переводится, и совпадение перестало бы работать.
+ */
+function ownError(message) {
+  const err = new Error(message);
+  err.ownServer = true;
+  return err;
 }
 
 async function uploadOwn(host, filePath, onStep = () => {}) {
   const { base_url: base, write_key: key } = host;
   if (!base || !key) {
-    onStep('свой box: не настроен адрес или ключ');
+    onStep(t('upload.ownNotConfigured'));
     return null;
   }
   const why = validateOwn({ base_url: base, write_key: key });
-  if (why) throw new Error('свой box: ' + why);
+  if (why) throw ownError(t('upload.ownInvalid', { detail: why }));
   const endpoint = base.replace(/\/+$/, '') + '/v1/uploads';
   const { body, contentType } = multipart({}, 'file', filePath, path.basename(filePath));
 
-  onStep('свой box: загружаю');
+  onStep(t('upload.ownUploading'));
   const res = await request(endpoint, {
     method: 'POST',
     headers: {
@@ -288,19 +298,19 @@ async function uploadOwn(host, filePath, onStep = () => {}) {
       const parsed = JSON.parse(res.body.toString('utf8'));
       if (parsed && parsed.error) detail = parsed.error;
     } catch (e) { /* не JSON — покажем как есть */ }
-    if (res.status === 401) throw new Error('свой box отклонил ключ (401)');
-    throw new Error(`свой box: HTTP ${res.status} — ${detail}`);
+    if (res.status === 401) throw ownError(t('upload.ownRejectedKey'));
+    throw ownError(t('upload.ownHttp', { status: res.status, detail }));
   }
 
   const meta = JSON.parse(res.body.toString('utf8'));
-  if (!meta || typeof meta.url !== 'string') throw new Error('свой box: в ответе нет url');
+  if (!meta || typeof meta.url !== 'string') throw ownError(t('upload.ownNoUrl'));
 
-  onStep('свой box: проверяю ссылку');
+  onStep(t('upload.ownChecking'));
   if (!(await verify(meta.url, fs.statSync(filePath).size, filePath))) {
-    throw new Error('свой box: ссылка не отдаёт файл');
+    throw ownError(t('upload.ownNoFile'));
   }
   // Срок хранения приходит с сервера: ссылка своего сервера не вечна.
-  return { url: meta.url, host: 'свой box', temp: false, expiresAt: meta.expires_at || null };
+  return { url: meta.url, host: 'own', temp: false, expiresAt: meta.expires_at || null };
 }
 
 /** Загрузка на один хостинг. */
@@ -325,7 +335,7 @@ async function uploadTo(host, filePath) {
     url = pick(JSON.parse(text), host.json);
   }
   if (typeof url !== 'string' || !/^https?:\/\//.test(url)) {
-    throw new Error('в ответе нет ссылки: ' + text.slice(0, 80));
+    throw new Error(t('upload.noLinkInResponse', { text: text.slice(0, 80) }));
   }
   return url;
 }
@@ -429,49 +439,56 @@ function safeName(p) {
  */
 async function publish(filePath, opts = {}) {
   const { host = 'auto', own = null, onStep = () => {}, maxBytes = MAX_UPLOAD } = opts;
-  if (!fs.existsSync(filePath)) throw new Error('нет файла: ' + filePath);
+  // Причина сбоя своего сервера: по ней главный процесс предупреждает, что
+  // файл ушёл в публичный интернет.
+  let ownFailed = null;
+  if (!fs.existsSync(filePath)) throw new Error(t('upload.noFile', { path: filePath }));
   const size = fs.statSync(filePath).size;
-  if (!size) throw new Error('файл пустой: ' + filePath);
+  if (!size) throw new Error(t('upload.emptyFile', { path: filePath }));
   // Файл читается в память целиком и склеивается из чанков, то есть
   // занимает примерно удвоенный объём: 400 МБ файла съедали 880 МБ RAM.
   // Проверка ссылки ниже тянет ещё и сам файл. Потолок отсекает видео,
   // которые всё равно никто не отправит.
   if (size > maxBytes) {
     throw new Error(
-      `файл ${Math.round(size / 1048576)} МБ больше потолка ${Math.round(maxBytes / 1048576)} МБ`
+      t('upload.tooBig', {
+        size: Math.round(size / 1048576),
+        max: Math.round(maxBytes / 1048576),
+      })
     );
   }
 
   if (host === 'own') {
     if (!own || !own.base_url || !own.write_key) {
-      throw new Error('свой box не настроен: нужен адрес и ключ');
+      throw ownError(t('upload.ownNeedsSetup'));
     }
     const r = await uploadOwn(own, filePath, onStep);
     if (r) return { ...r, size };
-    throw new Error('свой box не отдал ссылку — проверь домен и каталог');
+    throw ownError(t('upload.ownNoLink'));
   }
 
   let chain = HOSTS;
   const single = host !== 'auto';
   if (single) {
     chain = HOSTS.filter((h) => h.name === host);
-    if (!chain.length) throw new Error('неизвестный хостинг: ' + host);
+    if (!chain.length) throw new Error(t('upload.unknownHost', { host }));
   } else if (own && own.base_url && own.write_key) {
     // В авторежиме свой box не имеет права обрывать цепочку: любой его сбой —
     // неверный ключ, битый сервер, опечатка в адресе — должен молча уводить
     // на внешний хостинг, а не ронять всю загрузку.
-    onStep('пробую свой box');
+    onStep(t('upload.tryingOwn'));
     try {
       const r = await uploadOwn(own, filePath, onStep);
-      if (r) return { ...r, size };
+      if (r) return { ...r, size, ownFailed: null };
     } catch (e) {
-      onStep(`свой box не сработал: ${e.message}`);
+      ownFailed = e.message;
+      onStep(t('upload.ownFailed', { error: e.message }));
     }
   }
 
   const reasons = [];
   for (const h of chain) {
-    onStep('пробую ' + h.name);
+    onStep(t('upload.trying', { host: h.name }));
     let url;
     try {
       url = await uploadTo(h, filePath);
@@ -480,23 +497,28 @@ async function publish(filePath, opts = {}) {
       reasons.push(`${h.name} — ${e.message}`);
       continue;
     }
-    onStep(`${h.name}: проверяю ссылку`);
+    onStep(t('upload.checking', { host: h.name }));
     if (!(await verify(url, size, filePath))) {
-      onStep(`${h.name}: ссылка не вывозит файл, иду дальше`);
-      reasons.push(`${h.name} — ссылка не вывозит файл`);
+      onStep(t('upload.linkNoFile', { host: h.name }));
+      reasons.push(t('upload.hostNoLink', { host: h.name }));
       continue;
     }
-    return { url, host: h.name, temp: !!h.temp, size,
+    return { url, host: h.name, temp: !!h.temp, size, ownFailed,
              expiresAt: h.name === 'own' ? new Date(Date.now() + 30 * 86400e3).toISOString() : null };
   }
 
   if (single) {
-    throw new Error(
-      `${host} не отдал рабочую ссылку. ${reasons.join('; ') || 'причина неизвестна'}`
+    throw ownError(
+      t('upload.noWorkingLink', {
+        host,
+        reasons: reasons.join('; ') || t('upload.reasonUnknown'),
+      })
     );
   }
-  throw new Error(
-    'ни один хостинг не отдал рабочую ссылку: ' + (reasons.join('; ') || 'причина неизвестна')
+  throw ownError(
+    t('upload.noHostWorked', {
+      reasons: reasons.join('; ') || t('upload.reasonUnknown'),
+    })
   );
 }
 

@@ -1,6 +1,6 @@
 # Screenshots
 
-Three pictures of the interface, and where each one comes from.
+Four pictures of the interface, and where each one comes from.
 
 The files themselves are one folder up, in `docs/`. The README links to them
 from the top of the page, and the paths there are shorter that way. This folder holds the index.
@@ -10,6 +10,7 @@ from the top of the page, and the paths there are shorter that way. This folder 
 | [../ui-overlay.png](../ui-overlay.png) | The region picker. |
 | [../ui-settings.png](../ui-settings.png) | The settings window. |
 | [../ui-settings-broken.png](../ui-settings-broken.png) | The settings window when the configuration file could not be read. |
+| [../ui-settings-ru.png](../ui-settings-ru.png) | The same window in Russian. |
 
 ## The region picker
 
@@ -29,9 +30,16 @@ a busy screen.
 
 ## The settings window
 
-The 720 pixel window with the hotkey, the upload target, the behaviour
-toggles, the upload test area and the history. Every value here is read
-from `settings.json` in the application's data directory.
+The 720 pixel window with the language, the hotkey, the upload target, the
+behaviour toggles, the upload test area and the history. Every value here is
+read from `settings.json` in the application's data directory.
+
+## The settings window in Russian
+
+The same window with the language switched to Russian. The language is a
+setting of the application, and it covers the tray, the notifications and
+the command line as well as the windows. English is the default; Russian is
+what the person picks.
 
 ## The settings window with an unreadable configuration
 

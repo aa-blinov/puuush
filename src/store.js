@@ -4,6 +4,7 @@
  * объём данных маленький, а переносить на другой компьютер просто — скопировал файл.
  */
 
+const { t, LANGS } = require('./i18n');
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
@@ -17,6 +18,7 @@ const DEFAULTS = {
   openAfterUpload: false,
   keepLocalCopy: true,
   saveDir: '', // пусто -> Pictures/puuush
+  lang: 'en', // язык интерфейса; русский включается в настройках
 };
 
 function file(name) {
@@ -77,7 +79,8 @@ function noteBroken(name, reason) {
 
 const validSettings = (d) =>
   !!d && typeof d === 'object' && !Array.isArray(d) &&
-  (!d.host || HOST_NAMES.includes(d.host));
+  (!d.host || HOST_NAMES.includes(d.host)) &&
+  (!d.lang || LANGS.includes(d.lang));
 
 const validHistory = (d) => Array.isArray(d);
 
@@ -88,13 +91,13 @@ function readJson(name, fallback, validate) {
     raw = fs.readFileSync(file(name), 'utf8');
   } catch (e) {
     if (e.code === 'ENOENT') return fallback; // файла ещё нет, это нормально
-    noteBroken(name, `не прочитан: ${e.code || e.message}`);
+    noteBroken(name, t('store.notRead', { error: e.code || e.message }));
     return fallback;
   }
   // Пустой файл раньше молча превращался в значения по умолчанию: режим
   // «только свой сервер» исчезал без следа. Пустой файл — поломка.
   if (!raw.trim()) {
-    noteBroken(name, 'пуст');
+    noteBroken(name, t('store.empty'));
     return fallback;
   }
   let data;
@@ -103,11 +106,11 @@ function readJson(name, fallback, validate) {
   } catch (e) {
     // В окно уходит понятная причина, сырое сообщение парсера остаётся в логе.
     console.error(`${name}: ${e.message}`);
-    noteBroken(name, 'повреждён, JSON не читается');
+    noteBroken(name, t('store.broken'));
     return fallback;
   }
   if (validate && !validate(data)) {
-    noteBroken(name, 'неожиданная структура');
+    noteBroken(name, t('store.unexpected'));
     return fallback;
   }
   return data;
@@ -130,6 +133,7 @@ function getSettings() {
   const merged = { ...DEFAULTS, ...saved };
   merged.own = { ...DEFAULTS.own, ...(saved.own || {}) };
   if (!HOST_NAMES.includes(merged.host)) merged.host = 'auto';
+  if (!LANGS.includes(merged.lang)) merged.lang = DEFAULTS.lang;
   return merged;
 }
 
@@ -145,7 +149,7 @@ function setSettings(patch) {
   const next = { ...current, ...patch };
   if (patch.own) next.own = { ...current.own, ...patch.own };
   if (!writeJson('settings.json', next)) {
-    throw new Error('не смог записать settings.json: нет прав или кончилось место');
+    throw new Error(t('store.cannotWrite'));
   }
   return next;
 }

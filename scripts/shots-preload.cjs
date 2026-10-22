@@ -33,4 +33,5 @@ contextBridge.exposeInMainWorld('puuush', {
   closeSelf: async () => {},
   openExternal: async () => {},
   platform: process.platform,
+  lang: () => 'en',
 });

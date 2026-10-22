@@ -50,4 +50,12 @@ contextBridge.exposeInMainWorld('puuush', {
   closeSelf: () => ipcRenderer.invoke('puuush:close-self'),
   openExternal: (url) => ipcRenderer.invoke('puuush:open-external', url),
   platform: process.platform,
+  /**
+   * Язык окна, синхронно.
+   *
+   * Язык нужен до первой отрисовки, иначе окно мигнёт чужой: человек увидит
+   * английский интерфейс вместо русского на долю секунды. Синхронный ответ
+   * стоит одну строку и происходит один раз за жизнь окна.
+   */
+  lang: () => ipcRenderer.sendSync('puuush:lang'),
 });
