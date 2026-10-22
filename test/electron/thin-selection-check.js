@@ -11,10 +11,26 @@
 const path=require('path');
 const { app, BrowserWindow, ipcMain, nativeImage } = require('electron');
 app.on('window-all-closed', ()=>{});
+/**
+ * Проверка, которая висит, хуже проверки, которая падает: падение видно
+ * сразу, а ожидание не видно никогда. Поэтому необработанная ошибка и
+ * истечение времени ведут к ненулевому коду выхода.
+ */
+process.on('unhandledRejection', (e) => {
+  console.error('  ПРОВАЛ необработанная ошибка: ' + (e && e.message ? e.message : e));
+  process.exit(1);
+});
+setTimeout(() => {
+  console.error('  ПРОВАЛ: проверка не уложилась в две минуты');
+  process.exit(1);
+}, 120000).unref?.();
+
 const W=1400,H=880;
 
 app.whenReady().then(async () => {
-  const SRC='/home/ubuntu/pet/puuush/src';
+  // Путь к приложению считается от файла теста: зашитый путь ломал
+  // проверку на любой другой машине.
+  const SRC = require('path').join(__dirname, '..', '..', 'src');
   const frame = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==').resize({width:W,height:H});
   const cases = [
     ['настоящий клик без смещения',  [[400,200],[400,200],[400,200]],                    {x:0,y:0,width:W,height:H}],

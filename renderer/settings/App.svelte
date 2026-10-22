@@ -88,9 +88,13 @@
    * понятное: свой сервер, catbox, uguu.
    */
   function hostLabel(name) {
-    const key = `host.${name}`;
+    // Старая история хранила «свой box» до того, как у своего сервера
+    // появилось внутреннее имя. Старые строки не должны выглядеть по-русски
+    // в английском окне.
+    const id = name === 'свой box' ? 'own' : name;
+    const key = `host.${id}`;
     const label = $t(key);
-    return label === key ? name : label;
+    return label === key ? id : label;
   }
 
   function buildHostOptions(list, tr) {
