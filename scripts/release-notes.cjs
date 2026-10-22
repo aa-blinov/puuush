@@ -34,6 +34,7 @@ const body = (end === -1 ? rest : rest.slice(0, end));
 
 const notes = [
   '',
+  '',
   '**macOS:** приложение не нотифицировано, при первом запуске macOS скажет, что не может',
   'проверить разработчика: откройте System Settings → Privacy & Security и нажмите',
   '**Open Anyway** рядом с сообщением о puuush. Дальше приложение открывается нормально.',
