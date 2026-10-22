@@ -3,7 +3,8 @@
    * Окно выбора области: показывает снимок экрана и даёт выделить
    * прямоугольник.
    */
-  import { Kbd } from '@monos/ui';
+  import Keys from '../shared/Keys.svelte';
+  import { setLang, t } from '../shared/i18n.js';
 
   /** Снимок экрана и его размер в пикселях. */
   let shotSrc = '';
@@ -49,7 +50,10 @@
     };
   }
 
-  window.puuush.onFrame(({ dataUrl, width, height }) => {
+  window.puuush.onFrame(({ dataUrl, width, height, lang: frameLang }) => {
+    // Язык окна едет вместе со снимком: окно открывается на секунды, и
+    // отдельный запрос за языком успел бы прийти позже первого кадра.
+    if (frameLang) setLang(frameLang);
     W = width;
     H = height;
     shotSrc = dataUrl;
@@ -118,7 +122,7 @@
   }
 
   function onError(event) {
-    error = 'Ошибка окна выбора: ' + event.message;
+    error = $t('overlay.error', { message: event.message });
   }
 </script>
 
@@ -165,12 +169,6 @@
   {/if}
 
   <div class="hint">
-    {#if box}
-      <Kbd>Enter</Kbd> подтвердить, <Kbd>Esc</Kbd> отменить, <Kbd>Space</Kbd> — весь
-      экран, заново — тяни рамку
-    {:else}
-      Тяни рамку — <Kbd>Enter</Kbd> подтвердить, <Kbd>Esc</Kbd> отменить, <Kbd>Space</Kbd>
-      — весь экран
-    {/if}
+    <Keys text={box ? $t('overlay.hint.after') : $t('overlay.hint.start')} />
   </div>
 {/if}

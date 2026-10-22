@@ -56,6 +56,17 @@ windows first, and `npm run check` is what CI runs.
 - **A preload in a sandboxed window cannot read the disk.** It gets
   `electron` and a handful of Node modules, and nothing else. Data for the
   renderer comes over IPC.
+- **The words of the interface live in two dictionaries.**
+  `src/locales/en.json` and `src/locales/ru.json`, и читают их и главный
+  процесс, и окна. Новое слово идёт в оба файла: в тестах проверки берут
+  текст из словаря, а не пишут руками.
+- **Язык по умолчанию английский**, а русский человек включает в настройках.
+  Выбор лежит в `settings.json` рядом с остальными, и главный процесс
+  переключает язык на лету, когда окно его меняет.
+- **Свой сервер внутри зовётся `own`.** Раньше он звался «свой box», и
+  главный процесс узнавал о его сбое по совпадению в тексте. С переводом
+  текст перестал быть надёжным признаком, и сбой теперь помечается на самой
+  ошибке.
 
 - **The crop is in device pixels, not pointer pixels.** `display.scaleFactor`
   is the wrong number on some setups, and `src/capture.js` says so in a

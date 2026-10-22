@@ -101,6 +101,10 @@ tokens and the themes; the rules of the kit are the rules here:
   keyboard.
 - **The words belong to the product.** The kit carries no labels of its own;
   they arrive as props and as content.
+- **The words live in a dictionary.** Every string of the interface is in
+  `src/locales/en.json` or `src/locales/ru.json`, and the windows read the same
+  files the main process reads. A word that is missing from a dictionary shows
+  up as its key, so a gap is visible at once.
 
 The kit's own `DESIGN.md` describes the system in full, and the app follows
 it rather than restating it. Two things are added here for the windows
@@ -283,6 +287,8 @@ messages, `Badge` for the state, `EmptyState` for the empty history,
 
 - **Do** read the colours through the theme variables, and never write a hex
   value inside a rule.
+- **Do** put a new word into both dictionaries, and let the kit's components
+  take it as a prop.
 - **Do** reach for a component of the kit before writing a new one.
 - **Do** check a new window in the dark theme first and in the light theme
   second.
@@ -298,3 +304,5 @@ messages, `Badge` for the state, `EmptyState` for the empty history,
 - **Don't** paint the functional colours for decoration. Green, red and
   olive mean a state.
 - **Don't** use a pure white or a pure black for the ground of a window.
+- **Don't** write a word of the interface outside the dictionary: строка,
+  написанная прямо в разметке, останется на своём языке навсегда.

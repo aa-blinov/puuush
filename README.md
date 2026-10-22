@@ -59,6 +59,12 @@ configuration file that could not be read:
 
 ![The settings window with an unreadable configuration](docs/ui-settings-broken.png)
 
+The interface speaks English by default and Russian when the person picks
+it in the settings; the choice covers the tray, the notifications and the
+command line as well as the windows.
+
+![The settings window in Russian](docs/ui-settings-ru.png)
+
 ## How it works
 
 ```
@@ -133,6 +139,14 @@ The interface is built on the [monos-ui](https://github.com/aa-blinov/monos-ui)
 kit: Svelte 4, a Tailwind preset and a layer of tokens. The kit is not on npm
 yet, so it is installed straight from its repository, and `npm ci` fetches it
 from there.
+
+The words of the interface live in `src/locales/en.json` and
+`src/locales/ru.json`, one dictionary for the whole application: the tray,
+the notifications, the command line and the two windows read the same file.
+English is the default, Russian is picked in the settings, and the choice is
+kept in `settings.json` next to everything else. A word that is not in the
+dictionary shows up as its key, so a missing translation is visible at once
+instead of quietly disappearing.
 
 | Path | What it holds |
 | --- | --- |

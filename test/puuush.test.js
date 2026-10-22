@@ -18,6 +18,17 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 
 const upload = require('../src/upload.js');
+const { t } = require('../src/i18n.js');
+
+/**
+ * Проверка на сообщение об ошибке.
+ *
+ * Текст берётся из словаря, а не пишется руками: проверка не должна ломаться
+ * от того, что сообщение перевели на другой язык.
+ */
+function says(key, vars) {
+  return new RegExp(t(key, vars).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+}
 
 // Проверка ссылки сверяет первые байты файла, поэтому заглушка обязана
 // отдавать именно их, а не что-то произвольное.
@@ -199,12 +210,19 @@ test('publish отказывается грузить пустой файл', as
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-t-'));
   const file = path.join(dir, 'empty.png');
   fs.writeFileSync(file, Buffer.alloc(0));
-  await assert.rejects(() => upload.publish(file, { host: 'auto' }), /пустой/);
+  await assert.rejects(
+    () => upload.publish(file, { host: 'auto' }),
+    says('upload.emptyFile', { path: file })
+  );
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('publish ругается на отсутствующий файл', async () => {
-  await assert.rejects(() => upload.publish('/нет/такого.png', {}), /нет файла/);
+  const missing = path.join(os.tmpdir(), 'puuush-нет-такого.png');
+  await assert.rejects(
+    () => upload.publish(missing, {}),
+    says('upload.noFile', { path: missing })
+  );
 });
 
 test('свой box в авторежиме не роняет загрузку, а уходит дальше', async () => {
@@ -270,7 +288,7 @@ test('свой box: ключ с кириллицей даёт внятную о�
       host: 'own',
       own: { base_url: 'https://my-server', write_key: 'ключ-с-кириллицей' },
     }),
-    /нелатинские символы/
+    says('own.keyNotAscii')
   );
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -498,7 +516,7 @@ test('publish отказывает файл больше потолка и не 
   fs.writeFileSync(file, Buffer.alloc(1024));
   await assert.rejects(
     () => upload.publish(file, { host: 'auto', maxBytes: 512 }),
-    /больше потолка/
+    says('upload.tooBig', { size: 0, max: 0 })
   );
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -555,7 +573,7 @@ test('setSettings бросает, если настройки не записа�
     fs.chmodSync(dir, 0o500);
     assert.throws(
       () => store.setSettings({ host: 'catbox' }),
-      /не смог записать settings\.json/,
+      says('store.cannotWrite'),
       'молча возвращать успех нельзя'
     );
     // Значение на диске не должно было смениться.
@@ -591,7 +609,7 @@ test('битый settings.json не откатывается молча', () => 
       const s = store.getSettings();
       // Значения по умолчанию, но о факте поломки сказано вслух.
       assert.strictEqual(s.host, 'auto');
-      assert.ok(errors.some((e) => e.includes('повреждён')),
+      assert.ok(errors.some((e) => e.includes(t('store.broken'))),
         'о битом файле должно быть сказано в stderr');
     } finally {
       console.error = origError;

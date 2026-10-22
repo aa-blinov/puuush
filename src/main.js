@@ -23,6 +23,7 @@ const {
 } = require('electron');
 
 const store = require('./store');
+const { t, setLang, getLang } = require('./i18n');
 const upload = require('./upload');
 const { publish, HOSTS, request, validateOwn } = upload;
 const { captureTo } = require('./capture');
@@ -66,7 +67,7 @@ function trayAvailable() {
 }
 let settingsWin = null;
 let busy = false;
-let stage = 'съёмка'; // 'съёмка' или 'загрузка': для честного сообщения
+let stage = 'capture'; // 'capture' или 'upload': для честного сообщения
 
 // ---------------------------------------------------------------------------
 // Режим командной строки: puuush --cli файл.png
@@ -75,19 +76,18 @@ let stage = 'съёмка'; // 'съёмка' или 'загрузка': для 
 function runCli(argv) {
   const files = argv.filter((a) => !a.startsWith('--'));
   if (!files.length) {
-    process.stderr.write('puuush: укажи файл\nпример: puuush --cli ~/Desktop/screen.png\n');
+    process.stderr.write(t('cli.usage'));
     process.exit(2);
   }
   const s = store.getSettings();
+  // Язык CLI — тот же, что и у окна: человек выбрал его в настройках.
+  setLang(s.lang);
   (async () => {
     let code = 0;
     // CLI шёл мимо защиты: при поломке настроек он отправлял файл публичному
     // хостингу, тогда как окно в той же ситуации отказывало.
     if (store.brokenReason()) {
-      process.stderr.write(
-        'puuush --cli: настройки не прочитаны, отправка заблокирована. ' +
-        'Почини settings.json и повтори.\n'
-      );
+      process.stderr.write(t('cli.broken'));
       process.exit(2);
     }
     for (const f of files) {
@@ -144,25 +144,25 @@ function notify(title, body) {
  * На macOS и Windows такого нет, но проверка дешёвая и снимает целый класс
  * «молча сломалось».
  */
-function deliverToClipboard(url, what = 'ссылка') {
+function deliverToClipboard(url, what = t('clipboard.what.link')) {
   let why = '';
   try {
     clipboard.writeText(url);
     const back = clipboard.readText();
-    if (back !== url) why = 'буфер принял, но не отдаёт обратно';
+    if (back !== url) why = t('clipboard.reason.accepted');
   } catch (e) {
     why = e.message;
   }
 
   if (!why) return true;
 
-  noteError('буфер не сработал, ' + what + ' ниже');
-  notify('puuush', `буфер не сработал, ${what} ниже\n${url}`);
+  noteError(t('note.clipboardFailed', { what }));
+  notify('puuush', `${t('note.clipboardFailed', { what })}\n${url}`);
   dialog.showMessageBox({
     type: 'warning',
-    message: 'Буфер обмена недоступен',
-    detail: `${url}\n\nСкопируй вручную. Причина: ${why}`,
-    buttons: ['Скопировать', 'Закрыть'],
+    message: t('clipboard.title'),
+    detail: t('clipboard.detail', { url, why }),
+    buttons: [t('clipboard.copy'), t('clipboard.close')],
     defaultId: 0,
     cancelId: 1,
   }).then(({ response }) => {
@@ -199,11 +199,11 @@ function clipboardImage() {
 
 let uploading = false;
 
-async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) {
+async function uploadAndDeliver(filePath, { source = t('ui.field.snapshot') } = {}) {
   // Раньше флаг защищал только снимок по хоткею: двойной клик «Выбрать файл…»
   // запускал две загрузки, обе писали в одну строку статуса и обе дёргали
   // перерисовку истории.
-  if (uploading) throw new Error('предыдущая загрузка ещё идёт');
+  if (uploading) throw new Error(t('upload.busy'));
 
   // Всё после установки флага обязано быть внутри try: отказ из-за
   // непрочитанных настроек стоял между флагом и try, и сброс в catch был
@@ -216,11 +216,11 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
     // запуск уходил на публичный хостинг, и только следующий был заблокирован.
     const s = store.getSettings();
     if (store.brokenReason()) {
-      throw new Error('настройки не прочитаны, загрузка заблокирована. Открой настройки и сохрани их заново');
+      throw new Error(t('upload.settingsBroken'));
     }
 
-    notify('puuush', 'загружаю…');
-    stage = 'загрузка';
+    notify('puuush', t('note.uploading'));
+    stage = 'upload';
     const r = await publish(filePath, {
       host: s.host,
       own: s.own,
@@ -228,16 +228,20 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
         broadcast('puuush:progress', { state: 'step', message: m });
         // Причина отказа своего сервера всплывает в этом шаге, и её уже
         // нельзя потерять.
-        if (/свой box/i.test(m) && /(не сработал|не настроен|не отдал|отклонил)/i.test(m)) {
-          ownFailed = m;
-        }
+        // Сбой своего сервера главный процесс узнаёт из результата publish(),
+        // а не из текста шага: текст переводится, и совпадение перестало бы
+        // работать. Здесь только показываем шаг человеку.
+        void m;
       },
     });
 
+    // Свой сервер мог отказать: publish() знает это по факту, а не по тексту.
+    ownFailed = r.ownFailed || null;
+
     // Понижение приватности должно быть заметно. Иначе режим «авто» тихо
     // отправляет скриншот в публичный интернет, и человек об этом не знает.
-    if (ownFailed && r.host !== 'свой box') {
-      const msg = `${ownFailed}. Файл ушёл на ${r.host}, он публичный.`;
+    if (ownFailed && r.host !== 'own') {
+      const msg = t('note.privacyDowngraded', { reason: ownFailed, host: r.host });
       noteError(msg);
       notify('puuush', msg);
     } else {
@@ -252,15 +256,15 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
     });
     buildTrayMenu();
     notify('puuush', copied
-      ? `${source}: ссылка в буфере\n${r.url}`
-      : `${source}: ссылка готова, буфер занят\n${r.url}`);
+      ? `${t('note.linkInClipboard', { source })}\n${r.url}`
+      : `${t('note.linkReady', { source })}\n${r.url}`);
     broadcast('puuush:progress', {
       state: 'done',
       url: r.url,
       host: r.host,
       temp: r.temp,
       copied,
-      privacyDowngraded: !!(ownFailed && r.host !== 'свой box'),
+      privacyDowngraded: !!(ownFailed && r.host !== 'own'),
     });
     if (s.openAfterUpload) shell.openExternal(r.url);
     uploading = false;
@@ -269,11 +273,11 @@ async function uploadAndDeliver(filePath, { source = 'скриншот' } = {}) 
     // даже после системного диалога «буфер занят».
     return {
       url: r.url, host: r.host, temp: !!r.temp, size: r.size,
-      copied, privacyDowngraded: !!(ownFailed && r.host !== 'свой box'),
+      copied, privacyDowngraded: !!(ownFailed && r.host !== 'own'),
     };
   } catch (e) {
     noteError(e.message);
-    notify('puuush', 'не получилось: ' + e.message);
+    notify('puuush', t('note.failed', { error: e.message }));
     uploading = false;
     broadcast('puuush:progress', { state: 'error', message: e.message });
     throw e;
@@ -292,13 +296,13 @@ async function shoot() {
     // Раньше нажатие просто игнорировалось, и это выглядело как сломанный
     // хоткей. Флаг держится и на время загрузки, поэтому говорим точно, что
     // происходит, а не всегда «выбирается».
-    notify('puuush', stage === 'загрузка'
-      ? 'предыдущий снимок ещё загружается'
-      : 'предыдущий снимок ещё выбирается, Esc отменяет');
+    notify('puuush', stage === 'upload'
+      ? t('note.shotStillUploading')
+      : t('note.shotStillPicking'));
     return;
   }
   busy = true;
-  stage = 'съёмка';
+  stage = 'capture';
   broadcast('puuush:progress', { state: 'capturing' });
   try {
     const dir = store.shotsDir();
@@ -310,7 +314,7 @@ async function shoot() {
       height: shot.height,
     });
     try {
-      await uploadAndDeliver(shot.path, { source: 'скриншот' });
+      await uploadAndDeliver(shot.path, { source: t('ui.field.snapshot') });
     } finally {
       // Раньше копия удалялась только после успеха, и опция «хранить локальные
       // копии» обещала больше, чем делала. Теперь правило одно для обоих
@@ -319,11 +323,11 @@ async function shoot() {
     }
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
-    notify('puuush', 'снимок не удался: ' + msg);
+    notify('puuush', t('note.shotFailed', { error: msg }));
     broadcast('puuush:progress', { state: 'error', message: msg });
   } finally {
     busy = false;
-    stage = 'съёмка';
+    stage = 'capture';
   }
 }
 
@@ -353,49 +357,61 @@ function trayImage() {
 
 function historyMenu() {
   const items = store.getHistory().slice(0, 10);
-  if (!items.length) return [{ label: 'пусто', enabled: false }];
+  if (!items.length) return [{ label: t('tray.historyEmpty'), enabled: false }];
   const menu = items.map((h) => ({
     label: `${h.url.length > 58 ? h.url.slice(0, 58) + '…' : h.url}  (${h.host})`,
     toolTip: h.url,
     click: () => {
-      if (deliverToClipboard(h.url, 'ссылка из истории')) {
-        notify('puuush', 'ссылка скопирована');
+      if (deliverToClipboard(h.url, t('clipboard.what.history'))) {
+        notify('puuush', t('note.copied'));
       }
     },
   }));
   menu.push({ type: 'separator' });
-  menu.push({ label: 'очистить историю', click: () => { store.clearHistory(); buildTrayMenu(); } });
+  menu.push({ label: t('tray.historyClear'), click: () => { store.clearHistory(); buildTrayMenu(); } });
   return menu;
+}
+
+/**
+ * Подпись хостинга для человека.
+ *
+ * Внутренние имена хостингов не переводятся, но человек их видит: в трее, в
+ * истории и в сообщении о понижении приватности.
+ */
+function hostLabel(name) {
+  const key = `host.${name}`;
+  const label = t(key);
+  return label === key ? name : label;
 }
 
 function buildTrayMenu() {
   if (!tray) return;
   const s = store.getSettings();
-  tray.setToolTip('puuush — снимок по ' + s.hotkey);
+  tray.setToolTip(t('tray.tooltip', { hotkey: s.hotkey }));
 
   const status = [];
-  if (lastError) status.push({ label: 'Ошибка: ' + lastError, enabled: false });
+  if (lastError) status.push({ label: t('tray.error', { error: lastError }), enabled: false });
   if (lastUpload) {
-    const when = new Date(lastUpload.at).toLocaleTimeString('ru-RU', {
+    const when = new Date(lastUpload.at).toLocaleTimeString(getLang() === 'ru' ? 'ru-RU' : 'en-GB', {
       hour: '2-digit', minute: '2-digit',
     });
     status.push({
-      label: `Последний: ${lastUpload.host}, ${when}`,
+      label: t('tray.lastUpload', { host: hostLabel(lastUpload.host), when }),
       enabled: false,
     });
   }
 
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Снять область экрана', accelerator: s.hotkey, click: shoot },
+      { label: t('tray.shoot'), accelerator: s.hotkey, click: shoot },
       ...(status.length ? [{ type: 'separator' }, ...status] : []),
       { type: 'separator' },
       {
-        label: 'Загрузить файл…',
+        label: t('tray.uploadFile'),
         click: async () => {
           const r = await dialog.showOpenDialog({
             properties: ['openFile', 'multiSelections'],
-            title: 'Что загрузить',
+            title: t('tray.uploadDialogTitle'),
           });
           if (r.canceled) return;
           for (const f of r.filePaths) {
@@ -404,14 +420,14 @@ function buildTrayMenu() {
         },
       },
       {
-        label: 'Скопировать файл из буфера',
+        label: t('tray.fromClipboard'),
         click: async () => {
           const img = clipboardImage();
-          if (!img) return notify('puuush', 'в буфере нет картинки');
+          if (!img) return notify('puuush', t('tray.noImageInClipboard'));
           const f = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
           fs.writeFileSync(f, img.toPNG());
           try {
-            await uploadAndDeliver(f, { source: 'из буфера' });
+            await uploadAndDeliver(f, { source: t('upload.fromClipboard') });
           } catch (e) {
             /* ссылка не вышла, но снимок пользователю ещё пригодится */
           } finally {
@@ -420,10 +436,10 @@ function buildTrayMenu() {
         },
       },
       { type: 'separator' },
-      { label: 'История', submenu: historyMenu() },
-      { label: 'Настройки…', click: openSettings },
+      { label: t('tray.history'), submenu: historyMenu() },
+      { label: t('tray.settings'), click: openSettings },
       { type: 'separator' },
-      { label: 'Выход', click: () => app.quit() },
+      { label: t('tray.quit'), click: () => app.quit() },
     ])
   );
 }
@@ -437,7 +453,7 @@ function openSettings() {
   settingsWin = new BrowserWindow({
     width: 720,
     height: 700,
-    title: 'puuush — настройки',
+    title: t('tray.settingsTitle'),
     icon: path.join(ASSETS, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -462,7 +478,7 @@ function applyHotkey() {
   // всех приложений сразу. Такое легко записать в поле настроек и поверить в
   // это, поэтому отсекаем здесь, а не только в интерфейсе.
   if (!hasModifier(hotkey)) {
-    notify('puuush', `«${hotkey}» без модификатора не подойдёт: он забьёт клавишу у всех приложений`);
+    notify('puuush', t('note.noModifier', { hotkey }));
     return false;
   }
 
@@ -478,10 +494,10 @@ function applyHotkey() {
     setTimeout(() => {
       win.webContents.send('puuush:progress', {
         state: 'error',
-        message: `не смог занять ${hotkey} — возможно, он уже занят другим приложением`,
+        message: t('note.hotkeyFailed', { hotkey }),
       });
     }, 800);
-    notify('puuush', `хоткей ${hotkey} занят другим приложением`);
+    notify('puuush', t('note.hotkeyTaken', { hotkey }));
   }
   buildTrayMenu();
   return ok;
@@ -505,10 +521,15 @@ function registerIpc() {
         throw err;
       }
     });
+  // Синхронный ответ: язык нужен окну до первой отрисовки.
+  ipcMain.on('puuush:lang', (e) => { e.returnValue = getLang(); });
   handle('puuush:get-settings', () => store.getSettings());
   handle('puuush:broken-settings', () => store.brokenReason());
   handle('puuush:save-settings', (_e, patch) => {
     const next = store.setSettings(patch || {});
+    // Язык поменяли: главный процесс переводит вслух, трей и меню должны
+    // заговорить на нём же сразу, а не после перезапуска.
+    if (next.lang !== getLang()) setLang(next.lang);
     // Файл снова читается и пишется, значит поломки больше нет: баннер в
     // окне и строка об ошибке в трее не должны жить вечно после первого же
     // сохранения. Функция была объявлена и нигде не вызывалась.
@@ -525,14 +546,16 @@ function registerIpc() {
     buildTrayMenu();
     return true;
   });
-  handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, label: h.label, temp: h.temp })));
+  // Подписи хостингов переводит окно: список один, а язык в нём может
+  // отличаться от языка главного процесса в тот самый момент.
+  handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, temp: h.temp })));
   handle('puuush:reapply-hotkey', () => applyHotkey());
   handle('puuush:verify-server', async (_e, cfg) => {
     // Берём то, что человек видит в полях прямо сейчас. Поля сохраняются по
     // уходу фокуса, поэтому клик по «Проверить» успевал проверить старый адрес.
     const own = (cfg && cfg.base_url !== undefined) ? cfg : (store.getSettings().own || {});
     if (!own.base_url || !own.write_key) {
-      throw new Error('сервер или ключ не заполнены');
+      throw new Error(t('verify.notFilled'));
     }
     // Те же проверки, что и в настоящей загрузке. Без них кнопка показывала бы
     // зелёный ответ там, где загрузка упала бы с «Invalid character in header
@@ -548,13 +571,13 @@ function registerIpc() {
     } catch (e) {
       // Причины отказа переводим в человеческие: человеку нужно знать, что
       // делать, а не код сетевой ошибки.
-      if (e.code === 'ENOTFOUND') throw new Error('домен не найден');
-      if (e.code === 'ECONNREFUSED') throw new Error('сервер не отвечает');
-      if (e.code === 'CERT_HAS_EXPIRED') throw new Error('просрочен сертификат');
-      throw new Error(`сервер недоступен: ${e.message}`);
+      if (e.code === 'ENOTFOUND') throw new Error(t('verify.domainNotFound'));
+      if (e.code === 'ECONNREFUSED') throw new Error(t('verify.noResponse'));
+      if (e.code === 'CERT_HAS_EXPIRED') throw new Error(t('verify.certExpired'));
+      throw new Error(t('verify.unreachable', { error: e.message }));
     }
-    if (res.status === 401) throw new Error('сервер отверг ключ');
-    if (res.status !== 200) throw new Error(`сервер ответил ${res.status}`);
+    if (res.status === 401) throw new Error(t('verify.rejectedKey'));
+    if (res.status !== 200) throw new Error(t('verify.status', { status: res.status }));
 
     // Любой 200 раньше считался успехом, включая HTML-заглушку прокси и
     // чужой ответ с {ok:false}. Требуем ровно наш протокол.
@@ -562,10 +585,10 @@ function registerIpc() {
     try {
       info = JSON.parse(res.body.toString('utf8'));
     } catch (e) {
-      throw new Error('по адресу отвечает не puuush-сервер');
+      throw new Error(t('verify.notPuuush'));
     }
     if (!info || info.service !== 'puuush-server' || info.ok !== true) {
-      throw new Error('по адресу отвечает не puuush-сервер');
+      throw new Error(t('verify.notPuuush'));
     }
     return info;
   });
@@ -581,11 +604,11 @@ function registerIpc() {
     // Тот же путь, что и пункт меню трея, но доступный из окна: продукт
     // обещает три равноправных способа, а в настройках были видны два.
     const img = clipboardImage();
-    if (!img) throw new Error('в буфере обмена нет картинки');
+    if (!img) throw new Error(t('upload.noImageInClipboard'));
     const file = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
     fs.writeFileSync(file, img.toPNG());
     try {
-      return await uploadAndDeliver(file, { source: 'из буфера' });
+      return await uploadAndDeliver(file, { source: t('upload.fromClipboard') });
     } catch (e) {
       discard(file);
       throw e;
@@ -656,16 +679,16 @@ function checkRenderer(file, checkExpr) {
         try {
           problem = await win.webContents.executeJavaScript(checkExpr, true);
         } catch (e) {
-          problem = 'проверка не выполнилась: ' + e.message;
+          problem = t('selftest.checkFailed', { error: e.message });
         }
         finish(typeof problem === 'string' ? problem : '');
       }, 1500);
     });
 
     win.loadFile(path.join(__dirname, file)).catch((e) =>
-      finish('файл не загрузился: ' + e.message)
+      finish(t('selftest.fileNotLoaded', { error: e.message }))
     );
-    setTimeout(() => finish('окно не загрузилось за 10 секунд'), 10000);
+    setTimeout(() => finish(t('selftest.windowTimeout')), 10000);
   });
 }
 
@@ -690,6 +713,7 @@ async function runSelfTest() {
   const rows = [];
   const step = (ok, name, note) => rows.push({ ok, name, note });
   const s = store.getSettings();
+  setLang(s.lang);
   registerIpc(); // окно настроек ходит в IPC, без них оно не инициализируется
 
   try {
@@ -700,9 +724,12 @@ async function runSelfTest() {
     // Пишем и запрошенный масштаб, и фактическое отношение: расхождение между
     // ними — признак дробного масштабирования на Linux, и его полезно видеть.
     const wanted = (display.scaleFactor || 1);
-    step(true, 'захват экрана',
-      `${size.width}x${size.height} px, кадр к окну ${ratio.x.toFixed(2)}x` +
-      (Math.abs(ratio.x - wanted) > 0.01 ? ` (заказывали scale ${wanted})` : ''));
+    step(true, t('selftest.capture'),
+      `${size.width}x${size.height} px, ` +
+      t('selftest.frameNote', { ratio: ratio.x.toFixed(2) }) +
+      (Math.abs(ratio.x - wanted) > 0.01
+        ? t('selftest.scaleNote', { scale: wanted })
+        : ''));
 
     const cut = image.crop({
       x: Math.round(size.width * 0.1),
@@ -716,7 +743,7 @@ async function runSelfTest() {
     // которой README не говорит ни слова.
     const file = path.join(store.shotsDir(), 'selftest.png');
     fs.writeFileSync(file, cut.toPNG());
-    step(fs.statSync(file).size > 0, 'нарезка и запись',
+    step(fs.statSync(file).size > 0, t('selftest.crop'),
       `${cut.getSize().width}x${cut.getSize().height} -> ${file}`);
 
     // Трея в системе может не быть вовсе. Падение трея считается ошибкой
@@ -725,13 +752,17 @@ async function runSelfTest() {
     try {
       tray = new Tray(trayImage());
       buildTrayMenu();
-      step(true, 'трей', `иконка ${trayImage().isEmpty() ? 'НЕ ' : ''}загружена`);
+      step(true, t('selftest.tray'),
+        t('selftest.trayIcon', { state: trayImage().isEmpty() ? t('selftest.not') : '' }));
     } catch (e) {
-      step(false, 'трей', `в системе нет трея: ${e.message}`);
+      step(false, t('selftest.tray'), t('selftest.noTray', { error: e.message }));
     }
 
     const okHot = applyHotkey();
-    step(okHot, 'хоткей', okHot ? `${s.hotkey} занят` : `${s.hotkey} занять не удалось`);
+    step(okHot, t('selftest.hotkey'),
+      okHot
+        ? t('selftest.hotkeyOk', { hotkey: s.hotkey })
+        : t('selftest.hotkeyFail', { hotkey: s.hotkey }));
 
     // Наружу уходит сгенерированная картинка 1x1, а не кусок экрана. Свой
     // сервер настроен не всегда, а откат на catbox с настоящим снимком экрана
@@ -740,7 +771,7 @@ async function runSelfTest() {
     fs.writeFileSync(probeFile, png1px());
     try {
       const r = await publish(probeFile, { host: s.host, own: s.own, onStep: () => {} });
-      step(true, 'загрузка', `${r.url} (${r.host})`);
+      step(true, t('selftest.upload'), `${r.url} (${hostLabel(r.host)})`);
     } finally {
       try { fs.unlinkSync(probeFile); } catch (e) { /* не мешает */ }
       try { fs.unlinkSync(file); } catch (e) { /* не мешает */ }
@@ -750,29 +781,29 @@ async function runSelfTest() {
       (function () {
         var h = document.getElementById('hotkey');
         var sel = document.getElementById('host');
-        if (!h || !sel) return 'в разметке нет hotkey или host';
-        if (!h.value) return 'хоткей не подставился';
-        if (sel.options.length < 4) return 'вариантов хостинга: ' + sel.options.length;
+        if (!h || !sel) return ${JSON.stringify(t('selftest.noHotkeyOrHost'))};
+        if (!h.value) return ${JSON.stringify(t('selftest.noHotkeyValue'))};
+        if (sel.options.length < 4) return ${JSON.stringify(t('selftest.hostOptions', { count: '' }))} + sel.options.length;
         if (document.getElementById('ownBox').style.display === 'none')
-          return 'блок своего box скрыт при режиме ' + sel.value;
+          return ${JSON.stringify(t('selftest.ownBoxHidden', { mode: '' }))} + sel.value;
         return '';
       })()
     `);
-    step(setErr.length === 0, 'окно настроек',
-      setErr.length ? setErr.join(' | ') : 'грузится без ошибок');
+    step(setErr.length === 0, t('selftest.settingsWindow'),
+      setErr.length ? setErr.join(' | ') : t('selftest.loadsOk'));
 
     const ovErr = await checkRenderer('renderer/overlay.html',
-      `typeof window.puuush.submitRegion === 'function' ? '' : 'нет моста в preload'`);
-    step(ovErr.length === 0, 'окно выбора области',
-      ovErr.length ? ovErr.join(' | ') : 'грузится без ошибок');
+      `typeof window.puuush.submitRegion === 'function' ? '' : ${JSON.stringify(t('selftest.noBridge'))}`);
+    step(ovErr.length === 0, t('selftest.overlayWindow'),
+      ovErr.length ? ovErr.join(' | ') : t('selftest.loadsOk'));
   } catch (e) {
-    step(false, 'сбой', e.message);
+    step(false, t('selftest.failure'), e.message);
   }
 
   const w = Math.max(...rows.map((r) => r.name.length));
   for (const r of rows) {
     process.stdout.write(
-      `${r.ok ? '  ОК  ' : ' ОШИБКА'}  ${r.name.padEnd(w)}  ${r.note || ''}\n`
+      `${r.ok ? '  OK  ' : ' FAIL '}  ${r.name.padEnd(w)}  ${r.note || ''}\n`
     );
   }
   const failed = rows.filter((r) => !r.ok).length;
@@ -809,10 +840,10 @@ app.on('will-quit', () => {
 // диспетчеризации, и без этого перехвата приложение просто исчезает: иконки
 // нет, окна нет, хоткей мёртв, и понять почему нельзя.
 process.on('uncaughtException', (e) => {
-  process.stderr.write(`неперехваченное исключение: ${e && e.stack ? e.stack : e}\n`);
+  process.stderr.write(`uncaught exception: ${e && e.stack ? e.stack : e}\n`);
   try {
-    noteError('внутренняя ошибка, подробности в логе приложения');
-    notify('puuush', `внутренняя ошибка: ${e && e.message ? e.message : e}`);
+    noteError(t('note.internalError'));
+    notify('puuush', t('note.failed', { error: e && e.message ? e.message : e }));
   } catch (ignored) {
     /* даже сообщить об ошибке не получилось, молча продолжаем жить */
   }
@@ -828,11 +859,7 @@ if (cliIdx !== -1 || testIdx !== -1) {
   const headless = process.platform === 'linux' &&
     !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
   if (headless && cliIdx !== -1) {
-    process.stderr.write(
-      'puuush --cli: нет дисплея. Запусти так:\n' +
-      '  xvfb-run -a puuush --cli файл.png\n' +
-      'или с DISPLAY, если есть графическая сессия.\n'
-    );
+    process.stderr.write(t('cli.headless'));
     process.exit(2);
   }
 
@@ -854,11 +881,14 @@ if (cliIdx !== -1 || testIdx !== -1) {
 
       // Настройки читаем первыми: ошибка появляется именно при чтении файла,
       // и запрос до него всегда давал пустоту.
-      store.getSettings();
+      const s = store.getSettings();
+      // Язык включаем до первой строки, которую человек прочитает: трей,
+      // меню и уведомления.
+      setLang(s.lang);
       const broken = store.brokenReason();
       if (broken) {
         noteError(broken);
-        notify('puuush', `${broken}\nВыбранный режим сброшен, проверь настройки.`);
+        notify('puuush', t('note.brokenSettings', { reason: broken }));
       }
 
       // Приложение живёт в трее. Трея в системе может не быть, и тогда ни

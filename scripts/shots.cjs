@@ -20,10 +20,11 @@ const RENDERER = path.join(ROOT, 'src', 'renderer');
 const PRELOAD = path.join(__dirname, 'shots-preload.cjs');
 const OVERLAY_PRELOAD = path.join(__dirname, 'shots-overlay-preload.cjs');
 
+// Подписи хостингов переводит окно: главному процессу нужны только имена.
 const HOSTS = [
-  { name: 'catbox', label: 'catbox — постоянно', temp: false },
-  { name: 'pomf2', label: 'pomf2.lain.la — постоянно', temp: false },
-  { name: 'uguu', label: 'uguu.se — на несколько часов', temp: true },
+  { name: 'catbox', temp: false },
+  { name: 'pomf2', temp: false },
+  { name: 'uguu', temp: true },
 ];
 
 /** Состояние, из которого снимают окно настроек. */
@@ -34,6 +35,7 @@ const SETTINGS = {
   openAfterUpload: false,
   keepLocalCopy: true,
   saveDir: '',
+  lang: 'en',
 };
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-shots-'));
@@ -130,7 +132,7 @@ async function shotOverlay() {
   const dataUrl = 'data:image/png;base64,' + shot.toPNG().toString('base64');
   desktop.destroy();
 
-  frame = { dataUrl, width: SCREEN_W, height: SCREEN_H };
+  frame = { dataUrl, width: SCREEN_W, height: SCREEN_H, lang: 'en' };
 
   const win = new BrowserWindow({
     width: SCREEN_W,
@@ -247,8 +249,19 @@ app.whenReady().then(async () => {
     history: [],
   });
 
+  await shotSettings('ui-settings-ru.png', {
+    settings: { ...SETTINGS, lang: 'ru' },
+    hosts: HOSTS,
+    history: [],
+  });
+
   await shotSettings('ui-settings-broken.png', {
-    settings: { ...SETTINGS, own: { base_url: '', write_key: '' }, host: 'auto' },
+    settings: {
+      ...SETTINGS,
+      own: { base_url: '', write_key: '' },
+      host: 'auto',
+      lang: 'en',
+    },
     hosts: HOSTS,
     history: [],
     broken: 'settings.json повреждён: JSON не читается',

@@ -20,6 +20,8 @@ repository.
 | `src/capture.js` | The screen capture and the crop. It knows about display scaling and nothing else. |
 | `src/upload.js` | The upload targets, the fallback order and the file name rules. It knows nothing about Electron. |
 | `src/store.js` | The settings file, the history and what happens when the settings cannot be read. |
+| `src/i18n.js` | The language of the main process: it reads the dictionaries and hands out the words. |
+| `src/locales/` | The words of the interface, one file per language, for the main process and the windows alike. |
 | `renderer/overlay/` | The sources of the region picker window: the frame, the size label and the selection. |
 | `renderer/settings/` | The sources of the settings window and its behaviour. |
 | `renderer/shared/` | What both windows share: the theme, the font and the page. |
