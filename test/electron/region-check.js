@@ -52,6 +52,19 @@ app.whenReady().then(async () => {
     const wins = BrowserWindow.getAllWindows();
     const ov = wins.find(w => w.webContents.getURL().includes('overlay.html'));
     if (!ov) { results.push({ key, ok: false, val: 'окно выбора не появилось' }); continue; }
+    // Дальше ждём не время, а снимок экрана в окне. На медленной машине окно
+    // грузится дольше полутора секунд, и Enter уходил в пустоту: размер
+    // экрана ещё был неизвестен, а вслепую отправлять нечего.
+    const deadline = Date.now() + 20000;
+    let gotFrame = false;
+    while (Date.now() < deadline) {
+      gotFrame = await ov.webContents
+        .executeJavaScript("!!document.querySelector('img.shot')", true)
+        .catch(() => false);
+      if (gotFrame) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (!gotFrame) { results.push({ key, ok: false, val: 'снимок экрана не пришёл' }); continue; }
     // Настоящее DOM-событие вместо sendInputEvent: синтетический ввод не
     // доходит до страницы в этом окружении, и тест врал бы о коде, а не о
     // приложении. Всё после нажатия здесь боевое: настоящий preload,
