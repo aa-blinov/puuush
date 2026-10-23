@@ -98,8 +98,10 @@ app.whenReady().then(async () => {
     };
   })()`);
 
-  step(start.hotkey === 'Ctrl+Shift+S', 'хоткей подставился', start.hotkey);
-  step(start.imageHotkey === 'Ctrl+Alt+S', 'хоткей картинки в буфер подставился', start.imageHotkey);
+  // На macOS комбинации показываются значками, на других системах словами.
+  const mac = process.platform === 'darwin';
+  step(start.hotkey === (mac ? '⌘⇧S' : 'Ctrl+Shift+S'), 'хоткей подставился', start.hotkey);
+  step(start.imageHotkey === (mac ? '⌘⌥S' : 'Ctrl+Alt+S'), 'хоткей картинки в буфер подставился', start.imageHotkey);
   step(start.hosts >= 4, 'вариантов хостинга', String(start.hosts));
   step(start.ownVisible === 'block', 'блок своего сервера виден в режиме авто', start.ownVisible);
 
@@ -226,11 +228,14 @@ app.whenReady().then(async () => {
 
   step(store.getSettings().saveDir === '/tmp/puuush-shots', 'папка для скринов записана', store.getSettings().saveDir);
 
-  // Папка внутри файла не годится: настройки на неё не встают, и поле
-  // возвращается к той, что на диске.
+  // Папка внутри обычного файла не годится: настройки на неё не встают, и поле
+  // возвращается к той, что на диске. Путь строим от временного файла, а не от
+  // /etc/passwd: в Windows такой путь становится C:\etc\passwd и создаётся.
+  const notADir = path.join(ud, 'not-a-dir');
+  fs.writeFileSync(notADir, 'x');
   await run(`(function () {
     var dir = document.getElementById('saveDir');
-    dir.value = '/etc/passwd/shots';
+    dir.value = ${JSON.stringify(path.join(notADir, 'shots'))};
     dir.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await new Promise((r) => setTimeout(r, 600));
@@ -238,21 +243,29 @@ app.whenReady().then(async () => {
   step(store.getSettings().saveDir === '/tmp/puuush-shots', 'плохая папка не записана', store.getSettings().saveDir);
 
   // Вложенную папку окно создаёт само, и снимки уходят именно туда.
+  const nested = path.join(ud, 'shots', 'deep', 'er');
   await run(`(function () {
     var dir = document.getElementById('saveDir');
-    dir.value = '/tmp/puuush-shots/deep/er';
+    dir.value = ${JSON.stringify(nested)};
     dir.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await new Promise((r) => setTimeout(r, 600));
 
   const dirNow = store.shotsDir();
-  step(dirNow === '/tmp/puuush-shots/deep/er' && fs.existsSync(dirNow), 'вложенная папка создана для снимков', dirNow);
+  step(dirNow === path.resolve(nested) && fs.existsSync(dirNow), 'вложенная папка создана для снимков', dirNow);
 
   // --- ошибки в консоли ----------------------------------------------
   step(errors.length === 0, 'в консоли нет ошибок', errors.join(' | '));
 
   win.destroy();
-  fs.rmSync(ud, { recursive: true, force: true });
+  // Windows держит кэш Chromium открытым до выхода из приложения, поэтому
+  // временную папку здесь могут не удалить. Это не провал проверки: папку
+  // уберёт сама система.
+  try {
+    fs.rmSync(ud, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch (e) {
+    /* временная папка, её уберёт система */
+  }
 
   const failed = results.filter((r) => !r.ok).length;
   console.log(failed ? `  провалено: ${failed}` : '  все проверки пройдены');
