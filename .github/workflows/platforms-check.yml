@@ -4,6 +4,8 @@ name: platforms check
 # Запускается вручную из ветки и удаляется перед слиянием в main.
 
 on:
+  push:
+    branches: [image-hotkey]
   workflow_dispatch:
 
 permissions:
