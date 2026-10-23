@@ -28,7 +28,9 @@ const arches = asked === 'both' ? ['arm64', 'x64'] : [asked];
 const hasCertificate = Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
 
 for (const arch of arches) {
-  const args = [BUILDER, '--mac', arch, '--publish', 'never'];
+  // Архитектура флагом, а не целью: `--mac arm64` electron-builder читает как
+  // тип пакета и падает с «Unknown target: arm64».
+  const args = [BUILDER, '--mac', `--${arch}`, '--publish', 'never'];
   if (!hasCertificate) {
     args.push('-c.mac.identity=-', '-c.mac.hardenedRuntime=false');
   }

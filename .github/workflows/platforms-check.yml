@@ -24,6 +24,9 @@ jobs:
           - name: macos-arm64
             os: macos-15
             dist: dist:mac:arm64
+          - name: macos-x64
+            os: macos-15-intel
+            dist: dist:mac:x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
