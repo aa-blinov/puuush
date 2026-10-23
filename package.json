@@ -1,6 +1,6 @@
 {
   "name": "puuush",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "engines": {
     "node": ">=22"
   },
@@ -56,7 +56,13 @@
       "extendInfo": {
         "LSUIElement": true
       },
-      "artifactName": "puuush-${version}-${arch}.${ext}"
+      "artifactName": "puuush-${version}-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "sign": {
+        "identity": "-",
+        "hardenedRuntime": false
+      }
     },
     "win": {
       "target": [

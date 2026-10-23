@@ -137,12 +137,24 @@
             <tr><th scope="col">Platform</th><th scope="col">Artefact</th><th scope="col">First launch</th></tr>
           </thead>
           <tbody>
-            <tr><th scope="row">macOS</th><td><code>.dmg</code>, Apple silicon and Intel</td><td>The app is not notarized, so macOS asks once.</td></tr>
+            <tr><th scope="row">macOS</th><td><code>.dmg</code>, Apple silicon and Intel</td><td>No Developer ID, so macOS asks once. Clearing the quarantine flag off the image before opening it removes the question.</td></tr>
             <tr><th scope="row">Windows</th><td>NSIS installer, <code>.exe</code></td><td>SmartScreen asks once.</td></tr>
             <tr><th scope="row">Linux</th><td><code>.AppImage</code> and <code>.deb</code></td><td>Nothing to confirm.</td></tr>
           </tbody>
         </table>
       </div>
+      <h3>Opening the app on macOS without a signing certificate.</h3>
+      <p>The builds carry no Developer ID, so macOS does not let the app through
+      on its own. The shortest way past it is to clear the quarantine flag off
+      the image before opening it:</p>
+      <div class="command">
+        <pre><code>xattr -dr com.apple.quarantine puuush-*.dmg</code></pre>
+        <button class="button button-ghost" type="button" data-copy="xattr -dr com.apple.quarantine puuush-*.dmg">Copy the command</button>
+      </div>
+      <p>After that the image opens like any other. If the flag is already set,
+drag <code>puuush.app</code> into Applications, open it with the right mouse
+button, choose <strong>Open</strong>, and confirm once: later launches are a
+plain double click.</p>
       <h3>What you get, and where it lives.</h3>
       <div class="table-wrap" role="region" aria-label="What you get and where it lives" tabindex="0">
         <table>
