@@ -25,9 +25,18 @@ Download the installer for your system from the
 | macOS | `.dmg` | Open it and drag the app into Applications. Two files: one for Apple silicon, one for Intel. |
 | Windows | `.exe` | Run the installer. It asks where to put the app, and the default is fine. |
 
-The builds are unsigned, so the operating system asks before it opens the
-file. On macOS that is System Settings, Privacy and Security, then Open
-Anyway. On Windows it is More info, then Run anyway.
+The builds are not signed with a Developer ID, so macOS asks before it
+opens the app. The shortest way past it is to clear the quarantine flag off
+the image before opening it:
+
+```bash
+xattr -dr com.apple.quarantine puuush-*.dmg
+```
+
+After that the image opens like any other. If the flag is already set,
+drag `puuush.app` into Applications, open it with the right mouse button,
+choose **Open**, and confirm once: later launches are a plain double click.
+On Windows it is More info, then Run anyway.
 
 The app lives in the tray and has no main window. The hotkey and the tray
 menu are the whole interface.
