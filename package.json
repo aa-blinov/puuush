@@ -58,11 +58,7 @@
       },
       "artifactName": "puuush-${version}-${arch}.${ext}",
       "identity": "-",
-      "hardenedRuntime": false,
-      "sign": {
-        "identity": "-",
-        "hardenedRuntime": false
-      }
+      "hardenedRuntime": false
     },
     "win": {
       "target": [
