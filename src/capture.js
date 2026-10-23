@@ -80,6 +80,10 @@ function pickRegion(image, display, ratio) {
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
+      // На macOS клик по неактивному окну только активирует его и до страницы
+      // не доходит. Без этого первая протяжка рамки молча не начинается. Опция
+      // описана только для macOS, поэтому в других системах её не передаём.
+      ...(process.platform === 'darwin' ? { acceptFirstMouse: true } : {}),
       show: false,
       backgroundColor: '#00000000',
       enableLargerThanScreen: true,
@@ -145,6 +149,9 @@ function pickRegion(image, display, ratio) {
         dataUrl: image.toDataURL(),
         width: display.bounds.width,
         height: display.bounds.height,
+        // Верх рабочей области: под строкой меню на macOS и под верхней панелью
+        // на других системах. Подсказку и подпись размера ставим ниже него.
+        workTop: display.workArea.y - display.bounds.y,
         // Язык окна едет вместе со снимком: окно открывается на секунды, и
         // отдельный запрос за языком успел бы прийти позже, чем первый кадр.
         lang: getLang(),
@@ -200,7 +207,9 @@ async function captureTo(dir) {
   const cut = image.crop(rect);
   if (cut.isEmpty()) throw new Error(t('capture.emptyRegion'));
 
-  const name = `shot-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`;
+  // С миллисекундами: имя с точностью до секунды перезаписывало предыдущий
+  // снимок, если второй успел сняться в ту же секунду.
+  const name = `shot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
   const file = path.join(dir, name);
   fs.writeFileSync(file, cut.toPNG());
   return { path: file, width: cut.getSize().width, height: cut.getSize().height, scale: ratio.x };

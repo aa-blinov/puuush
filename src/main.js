@@ -14,7 +14,6 @@ const {
   Menu,
   globalShortcut,
   Notification,
-  clipboard,
   shell,
   dialog,
   BrowserWindow,
@@ -27,6 +26,7 @@ const { t, setLang, getLang } = require('./i18n');
 const upload = require('./upload');
 const { publish, HOSTS, request, validateOwn } = upload;
 const { captureTo } = require('./capture');
+const clip = require('./clipboard');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 
@@ -144,12 +144,10 @@ function notify(title, body) {
  * На macOS и Windows такого нет, но проверка дешёвая и снимает целый класс
  * «молча сломалось».
  */
-function deliverToClipboard(url, what = t('clipboard.what.link')) {
+async function deliverToClipboard(url, what = t('clipboard.what.link')) {
   let why = '';
   try {
-    clipboard.writeText(url);
-    const back = clipboard.readText();
-    if (back !== url) why = t('clipboard.reason.accepted');
+    if (!(await clip.writeText(url))) why = t('clipboard.reason.accepted');
   } catch (e) {
     why = e.message;
   }
@@ -165,36 +163,16 @@ function deliverToClipboard(url, what = t('clipboard.what.link')) {
     buttons: [t('clipboard.copy'), t('clipboard.close')],
     defaultId: 0,
     cancelId: 1,
-  }).then(({ response }) => {
+  }).then(async ({ response }) => {
     if (response === 0) {
       try {
-        clipboard.writeText(url);
+        await clip.writeText(url);
       } catch (err) {
         /* второй отказ: ссылка уже на экране, её можно выделить руками */
       }
     }
   });
   return false;
-}
-
-/**
- * Картинка из буфера обмена.
- *
- * В Electron 44 нет ни nativeImage.readClipboardImage, ни clipboard.readImage:
- * есть has() и read() по имени формата. Прежний вызов падал с «is not a
- * function», то есть кнопка «Картинка из буфера» не работала вообще.
- */
-function clipboardImage() {
-  for (const format of ['image/png', 'image/jpeg', 'image/webp', 'image/bmp']) {
-    try {
-      if (!clipboard.has(format)) continue;
-      const buf = clipboard.read(format);
-      if (buf && buf.length) return nativeImage.createFromBuffer(buf);
-    } catch (e) {
-      // формат не поддержан системой, пробуем следующий
-    }
-  }
-  return null;
 }
 
 let uploading = false;
@@ -248,7 +226,7 @@ async function uploadAndDeliver(filePath, { source = t('ui.field.snapshot') } = 
       clearError();
     }
 
-    const copied = deliverToClipboard(r.url);
+    const copied = await deliverToClipboard(r.url);
     lastUpload = { url: r.url, host: r.host, at: Date.now() };
     store.addHistory({
       url: r.url, host: r.host, temp: r.temp, file: filePath, source,
@@ -290,8 +268,11 @@ function broadcast(channel, payload) {
   }
 }
 
-/** Снимок экрана -> область -> загрузка -> буфер. */
-async function shoot() {
+/**
+ * Снимок экрана -> область -> загрузка -> буфер. Режим 'image' ничего не
+ * грузит и кладёт в буфер саму картинку: ссылки у него нет, истории тоже.
+ */
+async function shoot(mode = 'link') {
   if (busy) {
     // Раньше нажатие просто игнорировалось, и это выглядело как сломанный
     // хоткей. Флаг держится и на время загрузки, поэтому говорим точно, что
@@ -314,7 +295,15 @@ async function shoot() {
       height: shot.height,
     });
     try {
-      await uploadAndDeliver(shot.path, { source: t('ui.field.snapshot') });
+      if (mode === 'image') {
+        if (!(await clip.writeImage(fs.readFileSync(shot.path)))) {
+          throw new Error(t('clipboard.imageRefused'));
+        }
+        notify('puuush', t('note.imageInClipboard'));
+        broadcast('puuush:progress', { state: 'copied' });
+      } else {
+        await uploadAndDeliver(shot.path, { source: t('ui.field.snapshot') });
+      }
     } finally {
       // Раньше копия удалялась только после успеха, и опция «хранить локальные
       // копии» обещала больше, чем делала. Теперь правило одно для обоих
@@ -361,8 +350,8 @@ function historyMenu() {
   const menu = items.map((h) => ({
     label: `${h.url.length > 58 ? h.url.slice(0, 58) + '…' : h.url}  (${h.host})`,
     toolTip: h.url,
-    click: () => {
-      if (deliverToClipboard(h.url, t('clipboard.what.history'))) {
+    click: async () => {
+      if (await deliverToClipboard(h.url, t('clipboard.what.history'))) {
         notify('puuush', t('note.copied'));
       }
     },
@@ -403,7 +392,8 @@ function buildTrayMenu() {
 
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: t('tray.shoot'), accelerator: s.hotkey, click: shoot },
+      { label: t('tray.shoot'), accelerator: s.hotkey, click: () => shoot('link') },
+      { label: t('tray.shootImage'), accelerator: s.imageHotkey, click: () => shoot('image') },
       ...(status.length ? [{ type: 'separator' }, ...status] : []),
       { type: 'separator' },
       {
@@ -422,7 +412,7 @@ function buildTrayMenu() {
       {
         label: t('tray.fromClipboard'),
         click: async () => {
-          const img = clipboardImage();
+          const img = await clip.readImage();
           if (!img) return notify('puuush', t('tray.noImageInClipboard'));
           const f = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
           fs.writeFileSync(f, img.toPNG());
@@ -470,10 +460,24 @@ function openSettings() {
 // Хоткей
 // ---------------------------------------------------------------------------
 
-function applyHotkey() {
-  const { hotkey } = store.getSettings();
+/**
+ * Занимает обе комбинации: со ссылкой и с одной картинкой. Возвращает, какая
+ * из них заняла клавишу, чтобы окно настроек не показывало новую комбинацию
+ * как работающую.
+ */
+function applyHotkeys() {
+  const { hotkey, imageHotkey } = store.getSettings();
   globalShortcut.unregisterAll();
+  const applied = {
+    hotkey: takeHotkey(hotkey, () => shoot('link')),
+    imageHotkey: takeHotkey(imageHotkey, () => shoot('image')),
+  };
+  buildTrayMenu();
+  return applied;
+}
 
+/** Занимает одну комбинацию. Отказ не молчит: о нём знают окно и уведомление. */
+function takeHotkey(hotkey, onPress) {
   // Хоткей без модификатора (просто «A» или «Enter») перехватывает клавишу у
   // всех приложений сразу. Такое легко записать в поле настроек и поверить в
   // это, поэтому отсекаем здесь, а не только в интерфейсе.
@@ -484,7 +488,7 @@ function applyHotkey() {
 
   let ok = false;
   try {
-    ok = globalShortcut.register(hotkey, shoot);
+    ok = globalShortcut.register(hotkey, onPress);
   } catch (e) {
     ok = false;
   }
@@ -499,7 +503,6 @@ function applyHotkey() {
     }, 800);
     notify('puuush', t('note.hotkeyTaken', { hotkey }));
   }
-  buildTrayMenu();
   return ok;
 }
 
@@ -526,6 +529,10 @@ function registerIpc() {
   handle('puuush:get-settings', () => store.getSettings());
   handle('puuush:broken-settings', () => store.brokenReason());
   handle('puuush:save-settings', (_e, patch) => {
+    // Две комбинации на одну клавишу не займутся обе. Отказ второй выглядел бы
+    // как «занято другим приложением», хотя занято собой: отсекаем на входе.
+    const merged = { ...store.getSettings(), ...(patch || {}) };
+    if (merged.hotkey === merged.imageHotkey) throw new Error(t('note.sameHotkeys'));
     const next = store.setSettings(patch || {});
     // Язык поменяли: главный процесс переводит вслух, трей и меню должны
     // заговорить на нём же сразу, а не после перезапуска.
@@ -536,9 +543,8 @@ function registerIpc() {
     store.clearBroken();
     // Если комбинацию держат другие, на диске лежит новая, а работает старая.
     // Окну обязательно нужно знать, что сохранённое значение не применено.
-    const hotkeyApplied = applyHotkey();
-    buildTrayMenu();
-    return hotkeyApplied ? next : { ...next, hotkeyApplied: false };
+    const applied = applyHotkeys();
+    return { ...next, hotkeyApplied: applied.hotkey, imageHotkeyApplied: applied.imageHotkey };
   });
   handle('puuush:get-history', () => store.getHistory());
   handle('puuush:clear-history', () => {
@@ -549,7 +555,7 @@ function registerIpc() {
   // Подписи хостингов переводит окно: список один, а язык в нём может
   // отличаться от языка главного процесса в тот самый момент.
   handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, temp: h.temp })));
-  handle('puuush:reapply-hotkey', () => applyHotkey());
+  handle('puuush:reapply-hotkey', () => applyHotkeys());
   handle('puuush:verify-server', async (_e, cfg) => {
     // Берём то, что человек видит в полях прямо сейчас. Поля сохраняются по
     // уходу фокуса, поэтому клик по «Проверить» успевал проверить старый адрес.
@@ -603,7 +609,7 @@ function registerIpc() {
   handle('puuush:upload-clipboard-image', async () => {
     // Тот же путь, что и пункт меню трея, но доступный из окна: продукт
     // обещает три равноправных способа, а в настройках были видны два.
-    const img = clipboardImage();
+    const img = await clip.readImage();
     if (!img) throw new Error(t('upload.noImageInClipboard'));
     const file = path.join(store.shotsDir(), `clip-${Date.now()}.png`);
     fs.writeFileSync(file, img.toPNG());
@@ -758,11 +764,15 @@ async function runSelfTest() {
       step(false, t('selftest.tray'), t('selftest.noTray', { error: e.message }));
     }
 
-    const okHot = applyHotkey();
-    step(okHot, t('selftest.hotkey'),
-      okHot
+    const hot = applyHotkeys();
+    step(hot.hotkey, t('selftest.hotkey'),
+      hot.hotkey
         ? t('selftest.hotkeyOk', { hotkey: s.hotkey })
         : t('selftest.hotkeyFail', { hotkey: s.hotkey }));
+    step(hot.imageHotkey, t('selftest.hotkey'),
+      hot.imageHotkey
+        ? t('selftest.hotkeyOk', { hotkey: s.imageHotkey })
+        : t('selftest.hotkeyFail', { hotkey: s.imageHotkey }));
 
     // Наружу уходит сгенерированная картинка 1x1, а не кусок экрана. Свой
     // сервер настроен не всегда, а откат на catbox с настоящим снимком экрана
@@ -914,7 +924,7 @@ if (cliIdx !== -1 || testIdx !== -1) {
         app.dock?.hide?.();
       }
 
-      applyHotkey();
+      applyHotkeys();
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

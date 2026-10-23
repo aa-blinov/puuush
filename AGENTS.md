@@ -34,6 +34,7 @@ windows first, and `npm run check` is what CI runs.
 | --- | --- |
 | `src/main.js` | The tray, the global hotkey, the region picker, the settings window. The only file that touches Electron's `app`. |
 | `src/capture.js` | The screen capture and the crop. Knows about display scaling, nothing else. |
+| `src/clipboard.js` | The clipboard: text, the picture out of it, the picture into it. Asynchronous in Electron 44, so every call is awaited. |
 | `src/upload.js` | The upload targets, the fallback order, the file name rules. Knows nothing about Electron. |
 | `src/store.js` | The settings file, and what happens when it cannot be read. |
 | `src/preload-overlay.js` | The region picker's preload. The picker is a separate window. |

@@ -88,15 +88,18 @@ app.whenReady().then(async () => {
   // --- поле хоткея и список хостингов -------------------------------
   const start = await run(`(function () {
     var hotkey = document.getElementById('hotkey');
+    var imageHotkey = document.getElementById('imageHotkey');
     var host = document.getElementById('host');
     return {
       hotkey: hotkey ? hotkey.value : null,
+      imageHotkey: imageHotkey ? imageHotkey.value : null,
       hosts: host ? host.options.length : 0,
       ownVisible: document.getElementById('ownBox') ? document.getElementById('ownBox').style.display : null,
     };
   })()`);
 
   step(start.hotkey === 'Ctrl+Shift+S', 'хоткей подставился', start.hotkey);
+  step(start.imageHotkey === 'Ctrl+Alt+S', 'хоткей картинки в буфер подставился', start.imageHotkey);
   step(start.hosts >= 4, 'вариантов хостинга', String(start.hosts));
   step(start.ownVisible === 'block', 'блок своего сервера виден в режиме авто', start.ownVisible);
 
@@ -222,6 +225,28 @@ app.whenReady().then(async () => {
   await new Promise((r) => setTimeout(r, 600));
 
   step(store.getSettings().saveDir === '/tmp/puuush-shots', 'папка для скринов записана', store.getSettings().saveDir);
+
+  // Папка внутри файла не годится: настройки на неё не встают, и поле
+  // возвращается к той, что на диске.
+  await run(`(function () {
+    var dir = document.getElementById('saveDir');
+    dir.value = '/etc/passwd/shots';
+    dir.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+
+  step(store.getSettings().saveDir === '/tmp/puuush-shots', 'плохая папка не записана', store.getSettings().saveDir);
+
+  // Вложенную папку окно создаёт само, и снимки уходят именно туда.
+  await run(`(function () {
+    var dir = document.getElementById('saveDir');
+    dir.value = '/tmp/puuush-shots/deep/er';
+    dir.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+
+  const dirNow = store.shotsDir();
+  step(dirNow === '/tmp/puuush-shots/deep/er' && fs.existsSync(dirNow), 'вложенная папка создана для снимков', dirNow);
 
   // --- ошибки в консоли ----------------------------------------------
   step(errors.length === 0, 'в консоли нет ошибок', errors.join(' | '));

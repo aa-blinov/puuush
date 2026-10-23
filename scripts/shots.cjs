@@ -32,6 +32,7 @@ const HOSTS = [
 /** Состояние, из которого снимают окно настроек. */
 const SETTINGS = {
   hotkey: 'CommandOrControl+Shift+S',
+  imageHotkey: 'CommandOrControl+Alt+S',
   host: 'own',
   own: { base_url: 'https://media.example.com', write_key: 'секретный-ключ' },
   openAfterUpload: false,

@@ -110,7 +110,8 @@ tells its own files from a file somebody else posted.
 
 ## Configuration
 
-The settings window holds the hotkey, the upload target, and the behaviour
+The settings window holds the two hotkeys (the link, and the picture alone),
+the upload target, and the behaviour
 around the tray. The window is a separate window, and it closes to the tray
 by default.
 
