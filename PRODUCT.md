@@ -31,6 +31,11 @@ the capture, the frame is dragged, `Enter` confirms, and the clipboard holds
 the link. Everything else in the app exists to make that sequence short and
 to make the failure visible when it does not work.
 
+There is a second shortcut for the same frame, `Ctrl+Alt+S` (`Cmd+Alt+S`) by
+default. It uploads nothing: the picture itself goes to the clipboard, for the
+places that take an image rather than a link. The two shortcuts are set
+separately, and they must not be the same.
+
 Success for the user: the link is in the clipboard before they have thought
 about where to paste it. Success for the product: the file lands on the
 team's own server rather than on a public host, and the interface says which
@@ -71,7 +76,11 @@ Confirmed by the code:
 
 - Three ways to upload: a region of the screen, an arbitrary file, and an
   image from the clipboard.
+- Two shortcuts for a region. One uploads and copies the link. The other
+  copies the picture and uploads nothing.
 - The own server is tried first, then catbox, then pomf2, then uguu.
+- The hint in the picker sits below the top of the work area, so on macOS it
+  stays off the menu bar.
 - A link is checked with a real request before it is copied to the clipboard.
 - The crop is taken from the original capture, so a Retina display keeps its
   resolution.

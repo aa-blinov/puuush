@@ -53,9 +53,10 @@
   /** История ссылок. */
   let historyItems = [];
 
-  /** Поля формы. */
-  let hotkeyText = '';
-  let listening = false;
+  /** Поля формы. Тексты двух комбинаций: сама комбинация или подсказка про запись. */
+  let hotkeyTexts = { hotkey: '', imageHotkey: '' };
+  /** Поле, которое ждёт новую комбинацию, либо null. */
+  let listening = null;
   let host = 'auto';
   let ownUrl = '';
   let ownKey = '';
@@ -163,7 +164,10 @@
   /** Раскладывает настройки по полям формы. */
   function applySettings(next) {
     settings = next;
-    hotkeyText = prettyCombo(next.hotkey, isMac);
+    hotkeyTexts = {
+      hotkey: prettyCombo(next.hotkey, isMac),
+      imageHotkey: prettyCombo(next.imageHotkey, isMac),
+    };
     host = next.host;
     ownUrl = (next.own && next.own.base_url) || '';
     ownKey = (next.own && next.own.write_key) || '';
@@ -223,15 +227,16 @@
   // Хоткей
   // -------------------------------------------------------------------------
 
-  function startListening() {
-    listening = true;
-    hotkeyText = $t('ui.hotkey.listening');
+  function startListening(field) {
+    listening = field;
+    hotkeyTexts = { ...hotkeyTexts, [field]: $t('ui.hotkey.listening') };
   }
 
   function stopListening() {
     if (!listening) return;
-    listening = false;
-    hotkeyText = prettyCombo(settings.hotkey, isMac);
+    const field = listening;
+    listening = null;
+    hotkeyTexts = { ...hotkeyTexts, [field]: prettyCombo(settings[field], isMac) };
   }
 
   async function onWindowKeydown(event) {
@@ -248,9 +253,11 @@
       // клавишу у всех приложений сразу: Enter перестаёт работать везде,
       // включая это окно, из которого его только что выбрали.
       if (!combo || !combo.includes('+')) return;
+      const field = listening;
       stopListening();
-      const ok = await save({ hotkey: combo });
-      if (ok && settings && settings.hotkeyApplied === false) {
+      const ok = await save({ [field]: combo });
+      // Флаг применения называется по полю: hotkeyApplied, imageHotkeyApplied.
+      if (ok && settings && settings[`${field}Applied`] === false) {
         // Записалось, но занять клавишу не вышло: в приложении работает старая
         // комбинация, а поле показывало бы новую.
         fail($t('ui.hotkeyTaken', { hotkey: prettyCombo(combo, isMac) }));
@@ -259,10 +266,10 @@
         // save() при отказе перечитал настоящие настройки, но оптимистично
         // присвоенное значение комбинации затирало их обратно: поле показывало
         // комбинацию, которой на самом деле нет.
-        hotkeyText = prettyCombo(settings.hotkey, isMac);
+        hotkeyTexts = { ...hotkeyTexts, [field]: prettyCombo(settings[field], isMac) };
         return;
       }
-      hotkeyText = prettyCombo(combo, isMac);
+      hotkeyTexts = { ...hotkeyTexts, [field]: prettyCombo(combo, isMac) };
       return;
     }
     // Escape занят записью хоткея и закрывать не должен.
@@ -274,13 +281,15 @@
 
   async function testHotkey() {
     try {
-      const ok = await bridge.reapplyHotkey();
-      const shown = prettyCombo(settings.hotkey, isMac);
+      const applied = await bridge.reapplyHotkey();
+      const fields = ['hotkey', 'imageHotkey'];
+      const shown = fields.map((f) => prettyCombo(settings[f], isMac));
+      const taken = fields.filter((f) => !applied[f]).map((f) => prettyCombo(settings[f], isMac));
       setStatus(
-        ok
-          ? $t('ui.hotkeyOk', { hotkey: shown })
-          : $t('ui.hotkeyTaken', { hotkey: shown }),
-        ok ? 'ok' : 'bad'
+        taken.length
+          ? $t('ui.hotkeyTaken', { hotkey: taken.join(', ') })
+          : $t('ui.hotkeyOk', { hotkey: shown.join(', ') }),
+        taken.length ? 'bad' : 'ok'
       );
     } catch (e) {
       fail(e && e.message ? e.message : $t('ui.hotkeyCheckFailed'));
@@ -527,6 +536,7 @@
       if (p.message) setStatus(p.message, 'busy');
     } else if (p.state === 'capturing') setStatus($t('ui.status.progressCapturing'), 'busy');
     else if (p.state === 'captured') setStatus($t('ui.status.progressCaptured'), 'busy');
+    else if (p.state === 'copied') setStatus($t('note.imageInClipboard'), 'ok');
     else if (p.state === 'error') fail(p.message);
     else if (p.state === 'done') {
       // Главный процесс уже знает, копировалась ли ссылка и не уехала ли она
@@ -614,19 +624,28 @@
     </SectionBlock>
 
     <SectionBlock title={$t('ui.section.hotkey')}>
-      <div class="flex items-end gap-3">
-        <div class="min-w-0 flex-1">
-          <TextField
-            id="hotkey"
-            label={$t('ui.field.snapshot')}
-            value={hotkeyText}
-            readonly
-            spellcheck="false"
-            on:focus={startListening}
-            on:blur={stopListening}
-          />
-        </div>
-        <Button variant="secondary" class="shrink-0" on:click={testHotkey}>
+      <TextField
+        id="hotkey"
+        label={$t('ui.field.snapshot')}
+        value={hotkeyTexts.hotkey}
+        readonly
+        spellcheck="false"
+        on:focus={() => startListening('hotkey')}
+        on:blur={stopListening}
+      />
+      <div class="mt-3">
+        <TextField
+          id="imageHotkey"
+          label={$t('ui.field.image')}
+          value={hotkeyTexts.imageHotkey}
+          readonly
+          spellcheck="false"
+          on:focus={() => startListening('imageHotkey')}
+          on:blur={stopListening}
+        />
+      </div>
+      <div class="mt-3">
+        <Button variant="secondary" on:click={testHotkey}>
           {$t('ui.button.check')}
         </Button>
       </div>

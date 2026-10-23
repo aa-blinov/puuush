@@ -11,6 +11,8 @@
   let W = 0;
   let H = 0;
   let ready = false;
+  /** Верх рабочей области: под строкой меню, а не у самого края экрана. */
+  let workTop = 0;
 
   /** Выделение: начало, конец и готовый прямоугольник. */
   let start = null;
@@ -32,16 +34,16 @@
   }
 
   $: veilVisible = ready && !box;
-  $: sizeLabel = box ? computeSize(box, H) : null;
+  $: sizeLabel = box ? computeSize(box, H, workTop) : null;
 
   /** Подпись размера: над рамкой, под ней или внутри — как поместится. */
-  function computeSize(rect, height) {
+  function computeSize(rect, height, topEdge) {
     if (!(rect.width > 40 && rect.height > 20)) return null;
-    // Над рамкой подпись, если там есть место. У самого верхнего края её ставим
-    // под нижний край рамки: пилюля подсказки перекрыла бы её. Если и снизу не
-    // влезает, держим внутри рамки у низа.
+    // Над рамкой подпись, если там есть место. У верхнего края рабочей области её
+    // ставим под нижний край рамки: пилюля подсказки перекрыла бы её. Если и снизу
+    // не влезает, держим внутри рамки у низа.
     let top = rect.y - 22;
-    if (rect.y < 26) top = rect.y + rect.height + 6;
+    if (rect.y < topEdge + 26) top = rect.y + rect.height + 6;
     if (top + 20 > height) top = rect.y + rect.height - 26;
     return {
       left: rect.x + rect.width / 2,
@@ -50,12 +52,13 @@
     };
   }
 
-  window.puuush.onFrame(({ dataUrl, width, height, lang: frameLang }) => {
+  window.puuush.onFrame(({ dataUrl, width, height, lang: frameLang, workTop: topEdge }) => {
     // Язык окна едет вместе со снимком: окно открывается на секунды, и
     // отдельный запрос за языком успел бы прийти позже первого кадра.
     if (frameLang) setLang(frameLang);
     W = width;
     H = height;
+    workTop = topEdge || 0;
     shotSrc = dataUrl;
   });
 
@@ -168,7 +171,7 @@
     </div>
   {/if}
 
-  <div class="hint">
+  <div class="hint" style="top: {workTop + 22}px">
     <Keys text={box ? $t('overlay.hint.after') : $t('overlay.hint.start')} />
   </div>
 {/if}

@@ -1,6 +1,6 @@
 {
   "name": "puuush",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "engines": {
     "node": ">=22"
   },
@@ -27,7 +27,7 @@
     "test": "node --test test/puuush.test.js test/regressions.test.js",
     "check": "npm run build:renderer && svelte-check --tsconfig ./jsconfig.json && node --test test/puuush.test.js test/regressions.test.js && node --check src/main.js && node --check src/upload.js && node --check server/index.js",
     "check:ui": "svelte-check --tsconfig ./jsconfig.json",
-    "test:electron": "electron test/electron/region-check.js && electron test/electron/thin-selection-check.js && electron test/electron/settings-window-check.js",
+    "test:electron": "electron test/electron/region-check.js && electron test/electron/thin-selection-check.js && electron test/electron/settings-window-check.js && electron test/electron/clipboard-check.js",
     "pretest:electron": "npm run build:renderer",
     "check:site": "electron scripts/check-site.cjs",
     "dist:mac:arm64": "node scripts/dist-mac.cjs arm64 && node scripts/check-dmg.cjs dist",

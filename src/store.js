@@ -13,6 +13,7 @@ const HISTORY_LIMIT = 30;
 
 const DEFAULTS = {
   hotkey: 'CommandOrControl+Shift+S',
+  imageHotkey: 'CommandOrControl+Alt+S', // картинка в буфер, без загрузки
   host: 'auto', // auto | catbox | pomf2 | uguu | own
   own: { base_url: '', write_key: '' },
   openAfterUpload: false,
@@ -143,8 +144,12 @@ function getSettings() {
  * Бросает исключение, если запись не удалась. Молча возвращать «успех» было
  * опасно: окно настрочек показывало бы новое значение, а после перезапуска
  * всё откатывалось бы назад, а режим приватности молча возвращался в «авто».
+ *
+ * Плохую папку отсекаем здесь, а не в обработчике IPC: так её не примет ни окно,
+ * ни любой другой путь записи.
  */
 function setSettings(patch) {
+  if (patch.saveDir !== undefined) checkShotsDir(patch.saveDir);
   const current = getSettings();
   const next = { ...current, ...patch };
   if (patch.own) next.own = { ...current.own, ...patch.own };
@@ -154,12 +159,34 @@ function setSettings(patch) {
   return next;
 }
 
-/** Каталог для локальных копий скринов. */
-function shotsDir() {
-  const s = getSettings();
-  const dir = s.saveDir
-    ? path.resolve(s.saveDir.replace(/^~(?=$|\/)/, app.getPath('home')))
+/**
+ * Каталог для локальных копий. Пустая строка — Pictures/puuush. `~` в начале
+ * раскрываем и на Windows: там люди пишут `~\Shots` так же часто, как `~/Shots`.
+ */
+function resolveShotsDir(saveDir) {
+  return saveDir
+    ? path.resolve(saveDir.replace(/^~(?=$|[\\/])/, app.getPath('home')))
     : path.join(app.getPath('pictures'), 'puuush');
+}
+
+/**
+ * Проверяет папку, которую человек выбрал в настройках, до того как её
+ * сохранить. Бросает понятную ошибку, если в ней нельзя создать файлы: иначе
+ * плохой путь всплывает только на первом скриншоте, и причина теряется.
+ */
+function checkShotsDir(saveDir) {
+  const dir = resolveShotsDir(saveDir);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.W_OK);
+  } catch (e) {
+    throw new Error(t('store.saveDirBad', { path: dir, error: e.code || e.message }));
+  }
+}
+
+/** Каталог для локальных копий скринов. Создаёт его, если его ещё нет. */
+function shotsDir() {
+  const dir = resolveShotsDir(getSettings().saveDir);
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (e) {
@@ -195,4 +222,5 @@ module.exports = {
   addHistory,
   clearHistory,
   shotsDir,
+  checkShotsDir,
 };
