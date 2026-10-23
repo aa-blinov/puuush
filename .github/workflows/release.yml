@@ -100,6 +100,20 @@ jobs:
       - name: Проверка образа
         if: matrix.name != 'linux' && matrix.name != 'windows'
         run: node scripts/check-dmg.cjs dist
+      - name: Проверка подписи приложения
+        if: matrix.name != 'linux' && matrix.name != 'windows'
+        run: |
+          # Подпись проверяется настоящим codesign на настоящем Mac: без
+          # подписи приложение на Apple silicon не запускается, и macOS
+          # называет это «приложение повреждено». Сборка проходит успешно и
+          # без подписи, поэтому проверять надо здесь.
+          APP="$(find dist -maxdepth 2 -name 'puuush.app' -type d | head -1)"
+          if [ -z "$APP" ]; then
+            echo "::error::приложение не собрано"
+            exit 1
+          fi
+          codesign --verify --deep --strict "$APP"
+          codesign -dv --verbose=2 "$APP" 2>&1 | head -6
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
