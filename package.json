@@ -21,7 +21,7 @@
     "shots": "electron scripts/shots.cjs",
     "dist": "electron-builder --mac --win --linux --publish never",
     "predist": "npm run build:renderer",
-    "dist:mac": "electron-builder --mac --arm64 --x64 --publish never && node scripts/check-dmg.cjs dist",
+    "dist:mac": "node scripts/dist-mac.cjs both && node scripts/check-dmg.cjs dist",
     "dist:win": "electron-builder --win --publish never",
     "dist:linux": "electron-builder --linux --publish never",
     "test": "node --test test/puuush.test.js test/regressions.test.js",
@@ -30,8 +30,8 @@
     "test:electron": "electron test/electron/region-check.js && electron test/electron/thin-selection-check.js && electron test/electron/settings-window-check.js",
     "pretest:electron": "npm run build:renderer",
     "check:site": "electron scripts/check-site.cjs",
-    "dist:mac:arm64": "electron-builder --mac --arm64 --publish never && node scripts/check-dmg.cjs dist",
-    "dist:mac:x64": "electron-builder --mac --x64 --publish never && node scripts/check-dmg.cjs dist",
+    "dist:mac:arm64": "node scripts/dist-mac.cjs arm64 && node scripts/check-dmg.cjs dist",
+    "dist:mac:x64": "node scripts/dist-mac.cjs x64 && node scripts/check-dmg.cjs dist",
     "release:notes": "node scripts/release-notes.cjs",
     "check:dmg": "node scripts/check-dmg.cjs dist"
   },
@@ -56,9 +56,7 @@
       "extendInfo": {
         "LSUIElement": true
       },
-      "artifactName": "puuush-${version}-${arch}.${ext}",
-      "identity": "-",
-      "hardenedRuntime": false
+      "artifactName": "puuush-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [

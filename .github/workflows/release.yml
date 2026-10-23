@@ -94,7 +94,22 @@ jobs:
       # Окна интерфейса собираются из renderer/ в src/renderer/: без этого
       # шага в пакете не будет ни настроек, ни выбора области.
       - run: npm run build:renderer
-      - run: npm run ${{ matrix.script }}
+      - name: Сборка
+        if: matrix.name == 'linux' || matrix.name == 'windows'
+        run: npm run ${{ matrix.script }}
+      - name: Сборка (macOS)
+        if: matrix.name != 'linux' && matrix.name != 'windows'
+        env:
+          # Сертификат Developer ID и учётная запись для нотификации. Пока
+          # секретов нет, сборка идёт с подписью ad-hoc: приложение запускается,
+          # но macOS спрашивает подтверждение при первом открытии. Секреты
+          # появятся — и вопросов больше не будет.
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run ${{ matrix.script }}
       # Сборка macOS проверяет образ сама: если он битый, джоба падает и
       # релиз не выходит, вместо того чтобы ломаться у человека.
       - name: Проверка образа
