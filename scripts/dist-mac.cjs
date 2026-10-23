@@ -23,6 +23,14 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const BUILDER = path.join(ROOT, 'node_modules', '.bin', 'electron-builder');
 
+// Секреты, которых нет в репозитории, приходят пустыми строками. electron-builder
+// считает заданный CSC_LINK путём к сертификату и падает: «не файл». Пустые
+// переменные убираем, чтобы сборка видела только то, что реально задано.
+for (const key of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME', 'APPLE_ID',
+  'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID']) {
+  if (process.env[key] === '') delete process.env[key];
+}
+
 const asked = process.argv[2] || 'arm64';
 const arches = asked === 'both' ? ['arm64', 'x64'] : [asked];
 const hasCertificate = Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
