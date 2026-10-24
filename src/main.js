@@ -29,6 +29,7 @@ const { captureTo } = require('./capture');
 const clip = require('./clipboard');
 const { hasModifier } = require('./hotkey');
 const { runCli } = require('./cli');
+const { showToast } = require('./toast');
 const { runSelfTest } = require('./selftest');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
@@ -176,9 +177,10 @@ async function uploadAndDeliver(filePath, { source = t('ui.field.snapshot') } = 
       expiresAt: r.expiresAt || null,
     });
     buildTrayMenu();
-    notify('puuush', copied
-      ? `${t('note.linkInClipboard', { source })}\n${r.url}`
-      : `${t('note.linkReady', { source })}\n${r.url}`);
+    // Лёгкое «лежит в буфере» вместо системного уведомления: его видно сразу.
+    // Системное остаётся для случая, когда буфер занят и ссылку надо забрать.
+    if (copied) showToast(t('toast.link'), r.url);
+    else notify('puuush', `${t('note.linkReady', { source })}\n${r.url}`);
     broadcast('puuush:progress', {
       state: 'done',
       url: r.url,
@@ -245,7 +247,7 @@ async function shoot(mode = 'link') {
         if (!(await clip.writeImage(fs.readFileSync(shot.path)))) {
           throw new Error(t('clipboard.imageRefused'));
         }
-        notify('puuush', t('note.imageInClipboard'));
+        showToast(t('toast.image'), `${shot.width} × ${shot.height}`);
         broadcast('puuush:progress', { state: 'copied' });
       } else {
         await uploadAndDeliver(shot.path, { source: t('ui.field.snapshot') });
@@ -299,7 +301,7 @@ function historyMenu() {
     toolTip: h.url,
     click: async () => {
       if (await deliverToClipboard(h.url, t('clipboard.what.history'))) {
-        notify('puuush', t('note.copied'));
+        showToast(t('toast.link'), h.url);
       }
     },
   }));

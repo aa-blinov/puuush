@@ -22,6 +22,8 @@
   "note.failed": "не получилось: {error}",
   "note.shotFailed": "снимок не удался: {error}",
   "note.clipboardFailed": "буфер не сработал, {what} ниже",
+  "toast.link": "Ссылка скопирована",
+  "toast.image": "Картинка в буфере",
   "note.imageInClipboard": "картинка в буфере, ничего не загружено",
   "note.sameHotkeys": "два хоткея не могут совпадать",
   "note.linkInClipboard": "{source}: ссылка в буфере",

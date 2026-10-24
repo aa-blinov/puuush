@@ -34,6 +34,7 @@ windows first, and `npm run check` is what CI runs.
 | --- | --- |
 | `src/main.js` | The tray, the global hotkey, the region picker, the settings window. The only file that touches Electron's `app`. |
 | `src/cli.js`, `src/selftest.js` | `--cli` and `--selftest`. Both get what they need from `main.js` as arguments, none touches the tray itself. |
+| `src/toast.js` | The corner popup "copied to the clipboard". No focus, no mouse, gone in a few seconds; not a main window. |
 | `src/hotkey.js` | Hotkey string parsing. Pure. |
 | `src/capture.js` | The screen capture and the crop. Knows about display scaling, nothing else. |
 | `src/clipboard.js` | The clipboard: text, the picture out of it, the picture into it. Asynchronous in Electron 44, so every call is awaited. |
