@@ -38,6 +38,7 @@ function loadConfig() {
     maxTotalBytes: Number(raw.max_total_bytes || 2 * 1024 * 1024 * 1024),
     keepDays: Number(raw.keep_days || 30),
     maxFiles: Number(raw.max_files || 5000),
+    edgePrefix: String(raw.edge_prefix || EDGE_PREFIX),
   };
   if (!cfg.writeKey) throw new Error('в конфиге нет write_key');
   if (!cfg.publicBase) throw new Error('в конфиге нет public_base');
@@ -425,17 +426,19 @@ function authOk(req, cfg) {
 /**
  * Сеть edge: Caddy на этой машине ходит в сервис с адресов 172.40.0.0/24.
  * Только оттуда заголовку X-Real-IP верим. Порт в ufw открыт только для этой
- * сети, так что снаружи до сервиса не достать.
+ * сети, так что снаружи до сервиса не достать. Другая раскладка сети задаётся
+ * в конфиге: edge_prefix, например "10.0.0.".
  */
-const EDGE_NET = /^172\.40\.0\.\d+$/;
+const EDGE_PREFIX = '172.40.0.';
 
-function clientIp(req) {
-  const remote = req.socket.remoteAddress || 'unknown';
+function clientIp(req, edgePrefix = EDGE_PREFIX) {
+  // IPv4 за двойным стеком приходит как ::ffff:172.40.0.7.
+  const remote = (req.socket.remoteAddress || 'unknown').replace(/^::ffff:/, '');
   // Заголовок ставит прокси. Если соединение пришло не из сети edge, перед нами
   // прямой клиент, и он волен написать в любой заголовок что угодно: лимит
   // тогда обходится простой ротацией значения. Поэтому верим заголовки только
   // рядом с настоящим прокси.
-  if (!EDGE_NET.test(remote)) return remote;
+  if (!remote.startsWith(edgePrefix)) return remote;
 
   // Именно X-Real-IP, а не первый элемент X-Forwarded-For. Caddy дописывает
   // свой адрес в конец XFF, поэтому клиентский, подделанный, остаётся
@@ -529,7 +532,7 @@ async function handleRequest(req, res, cfg, limit) {
     }
 
     if (path_.startsWith('/v1/')) {
-      const ip = clientIp(req);
+      const ip = clientIp(req, cfg.edgePrefix);
 
       // Лимит считаем по каждому неудачному ключу отдельно: нормальный
       // клиент ошибается редко, а подбор ключа с одного адреса упирается в

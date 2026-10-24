@@ -10,6 +10,7 @@ const path = require('node:path');
 const { app } = require('electron');
 
 const HISTORY_LIMIT = 30;
+const HOST_NAMES = ['auto', 'own', 'catbox', 'pomf2', 'uguu'];
 
 const DEFAULTS = {
   hotkey: 'CommandOrControl+Shift+S',
@@ -131,8 +132,6 @@ function brokenReason() {
   return settingsBroken;
 }
 
-const HOST_NAMES = ['auto', 'own', 'catbox', 'pomf2', 'uguu'];
-
 function getSettings() {
   const saved = readJson('settings.json', {}, validSettings);
   const merged = { ...DEFAULTS, ...saved };
@@ -153,6 +152,7 @@ function getSettings() {
  * ни любой другой путь записи.
  */
 function setSettings(patch) {
+  checkPatch(patch);
   if (patch.saveDir !== undefined) checkShotsDir(patch.saveDir);
   const current = getSettings();
   const next = { ...current, ...patch };
@@ -161,6 +161,26 @@ function setSettings(patch) {
     throw new Error(t('store.cannotWrite'));
   }
   return next;
+}
+
+const SETTING_TYPES = {
+  hotkey: 'string', imageHotkey: 'string', host: 'string', saveDir: 'string',
+  lang: 'string', openAfterUpload: 'boolean', keepLocalCopy: 'boolean',
+  own: 'object',
+};
+
+/**
+ * Значение, которое getSettings() потом не примет, нельзя класть на диск:
+ * файл с host: 'bogus' при следующем чтении объявляется сломанным, и все
+ * загрузки блокируются. Неизвестные ключи тоже отказ, а не тихая запись.
+ */
+function checkPatch(patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    const ok = typeof value === SETTING_TYPES[key] && value !== null &&
+      (key !== 'host' || HOST_NAMES.includes(value)) &&
+      (key !== 'lang' || LANGS.includes(value));
+    if (!ok) throw new Error(t('store.badValue', { key }));
+  }
 }
 
 /**

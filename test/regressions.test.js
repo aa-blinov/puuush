@@ -454,3 +454,33 @@ test('потолки ответа считают байты, а не чанки'
     await new Promise((r) => srv.close(r));
   }
 });
+
+test('clientIp: префикс сети edge берётся из конфига и понимает ::ffff:', () => {
+  const req = (remote, rip) => ({ socket: { remoteAddress: remote }, headers: { 'x-real-ip': rip } });
+  assert.strictEqual(server.clientIp(req('::ffff:172.40.0.7', '203.0.113.9')), '203.0.113.9');
+  assert.strictEqual(server.clientIp(req('10.0.0.5', '203.0.113.9'), '10.0.0.'), '203.0.113.9');
+  assert.strictEqual(server.clientIp(req('10.0.0.5', '203.0.113.9')), '10.0.0.5');
+});
+
+test('hasModifier: хоткей без модификатора отсекается', () => {
+  const { hasModifier } = require('../src/hotkey.js');
+  assert.ok(hasModifier('CommandOrControl+Shift+S'));
+  assert.ok(hasModifier('Alt+F4'));
+  assert.ok(!hasModifier('A'));
+  assert.ok(!hasModifier('Enter'));
+  assert.ok(!hasModifier('Shift+'));
+  assert.ok(!hasModifier('Foo+S'));
+});
+
+test('setSettings не кладёт на диск то, что getSettings не примет', () => {
+  withStore((load, dir) => {
+    const store = load();
+    assert.throws(() => store.setSettings({ host: 'bogus' }), /host/);
+    assert.throws(() => store.setSettings({ lang: 'xx' }), /lang/);
+    assert.throws(() => store.setSettings({ nope: 1 }), /nope/);
+    assert.throws(() => store.setSettings({ keepLocalCopy: 'yes' }), /keepLocalCopy/);
+    assert.ok(!fs.existsSync(path.join(dir, 'settings.json')), 'отказ ничего не пишет');
+    assert.strictEqual(store.setSettings({ host: 'own', own: { base_url: 'https://x.y' } }).host, 'own');
+    assert.strictEqual(store.brokenReason(), null);
+  });
+});

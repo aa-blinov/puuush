@@ -37,8 +37,12 @@ jobs:
           node-version: 22
       - name: Сверка тега с версией в package.json
         id: version
+        env:
+          # Через env, а не прямой подстановкой в shell: значение приходит
+          # снаружи, и кавычка в нём стала бы командой.
+          RAW_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="$RAW_TAG"
           TAG="${TAG#v}"
           PKG="$(node -p "require('./package.json').version")"
           if [ "$TAG" != "$PKG" ]; then
