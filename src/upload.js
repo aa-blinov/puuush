@@ -212,13 +212,6 @@ function pick(obj, pathStr) {
 }
 
 /**
- * Свой box: загрузка в свой сервер через API.
- *
- * Раньше здесь был просто cp в каталог плюс проверка ссылки. Свой сервер
- * теперь принимает файлы по /v1/uploads с ключом в заголовке — так ключ не
- * попадает ни в access-лог Caddy, ни в ссылку.
- */
-/**
  * Настоящий loopback.
  *
  * Прежняя проверка брала текст хоста, и через неё проходил домен вроде
@@ -274,6 +267,10 @@ function ownError(message) {
   return err;
 }
 
+/**
+ * Загрузка в свой сервер через API: файл идёт на /v1/uploads с ключом в
+ * заголовке, так ключ не попадает ни в access-лог Caddy, ни в ссылку.
+ */
 async function uploadOwn(host, filePath, onStep = () => {}) {
   const { base_url: base, write_key: key } = host;
   if (!base || !key) {
@@ -438,8 +435,8 @@ function safeName(p) {
  *
  * @param {string} filePath путь к файлу
  * @param {object} opts
- * @param {string} [opts.host] 'auto' | 'catbox' | 'uguu' | 'litterbox' | 'pomf2' | 'own'
- * @param {object} [opts.own] { base_url, dir }
+ * @param {string} [opts.host] 'auto' | 'catbox' | 'pomf2' | 'uguu' | 'own'
+ * @param {object} [opts.own] { base_url, write_key }
  * @param {(msg:string)=>void} [opts.onStep]
  * @returns {Promise<{url:string, host:string, temp:boolean, size:number}>}
  */
@@ -509,8 +506,7 @@ async function publish(filePath, opts = {}) {
       reasons.push(t('upload.hostNoLink', { host: h.name }));
       continue;
     }
-    return { url, host: h.name, temp: !!h.temp, size, ownFailed,
-             expiresAt: h.name === 'own' ? new Date(Date.now() + 30 * 86400e3).toISOString() : null };
+    return { url, host: h.name, temp: !!h.temp, size, ownFailed, expiresAt: null };
   }
 
   if (single) {

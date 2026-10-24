@@ -24,9 +24,12 @@ const {
 const store = require('./store');
 const { t, setLang, getLang } = require('./i18n');
 const upload = require('./upload');
-const { publish, HOSTS, request, validateOwn } = upload;
+const { publish, HOSTS, request } = upload;
 const { captureTo } = require('./capture');
 const clip = require('./clipboard');
+const { hasModifier } = require('./hotkey');
+const { runCli } = require('./cli');
+const { runSelfTest } = require('./selftest');
 
 const ASSETS = path.join(__dirname, '..', 'assets');
 
@@ -44,69 +47,14 @@ let tray = null;
  * Слепой случай, который честно не закрывается кодом: GNOME без расширения
  * AppIndicator. Шина DBus там есть, трея нет, проверка скажет «есть».
  */
-// Модификаторы в синтаксисе Electron. Проверка идёт по разбору строки, а не
-// регуляркой по началу: иначе «CommandOrControl+Shift+S» отсекается как
-// беспризнаковый, хотя модификатор там есть.
-const HOTKEY_MODIFIERS = new Set([
-  'command', 'cmd', 'control', 'ctrl', 'commandorcontrol', 'cmdorctrl',
-  'alt', 'option', 'altgr', 'shift', 'super', 'meta',
-]);
-
-function hasModifier(combo) {
-  const parts = String(combo || '').split('+').map((p) => p.trim().toLowerCase());
-  if (parts.length < 2) return false;
-  // Всё, кроме последнего элемента, обязано быть модификатором.
-  const last = parts[parts.length - 1];
-  if (!last) return false;
-  return parts.slice(0, -1).every((p) => HOTKEY_MODIFIERS.has(p));
-}
-
 function trayAvailable() {
   if (process.platform !== 'linux') return true;
   return !!(process.env.DBUS_SESSION_BUS_ADDRESS && process.env.XDG_CURRENT_DESKTOP);
 }
+
 let settingsWin = null;
 let busy = false;
 let stage = 'capture'; // 'capture' или 'upload': для честного сообщения
-
-// ---------------------------------------------------------------------------
-// Режим командной строки: puuush --cli файл.png
-// Печатает ссылку и выходит. Удобно из скриптов и для удалённых машин.
-// ---------------------------------------------------------------------------
-function runCli(argv) {
-  const files = argv.filter((a) => !a.startsWith('--'));
-  if (!files.length) {
-    process.stderr.write(t('cli.usage'));
-    process.exit(2);
-  }
-  const s = store.getSettings();
-  // Язык CLI — тот же, что и у окна: человек выбрал его в настройках.
-  setLang(s.lang);
-  (async () => {
-    let code = 0;
-    // CLI шёл мимо защиты: при поломке настроек он отправлял файл публичному
-    // хостингу, тогда как окно в той же ситуации отказывало.
-    if (store.brokenReason()) {
-      process.stderr.write(t('cli.broken'));
-      process.exit(2);
-    }
-    for (const f of files) {
-      try {
-        const r = await publish(path.resolve(f), {
-          host: s.host,
-          own: s.own,
-          onStep: (m) => process.stderr.write(`  ${m}\n`),
-        });
-        process.stdout.write(r.url + '\n');
-      } catch (e) {
-        process.stderr.write(`puuush: ${e.message}\n`);
-        code = 1;
-      }
-    }
-    process.exit(code);
-  })();
-  return true;
-}
 
 // ---------------------------------------------------------------------------
 // Загрузка
@@ -202,15 +150,10 @@ async function uploadAndDeliver(filePath, { source = t('ui.field.snapshot') } = 
     const r = await publish(filePath, {
       host: s.host,
       own: s.own,
-      onStep: (m) => {
-        broadcast('puuush:progress', { state: 'step', message: m });
-        // Причина отказа своего сервера всплывает в этом шаге, и её уже
-        // нельзя потерять.
-        // Сбой своего сервера главный процесс узнаёт из результата publish(),
-        // а не из текста шага: текст переводится, и совпадение перестало бы
-        // работать. Здесь только показываем шаг человеку.
-        void m;
-      },
+      // Сбой своего сервера главный процесс узнаёт из результата publish(),
+      // а не из текста шага: текст переводится, и совпадение перестало бы
+      // работать. Здесь шаг только показывается человеку.
+      onStep: (m) => broadcast('puuush:progress', { state: 'step', message: m }),
     });
 
     // Свой сервер мог отказать: publish() знает это по факту, а не по тексту.
@@ -245,7 +188,6 @@ async function uploadAndDeliver(filePath, { source = t('ui.field.snapshot') } = 
       privacyDowngraded: !!(ownFailed && r.host !== 'own'),
     });
     if (s.openAfterUpload) shell.openExternal(r.url);
-    uploading = false;
     // Окно настроек читает copied и privacyDowngraded. Раньше наружу уходил
     // результат publish(), где этих полей нет, и окно писало «скопировано»
     // даже после системного диалога «буфер занят».
@@ -256,9 +198,13 @@ async function uploadAndDeliver(filePath, { source = t('ui.field.snapshot') } = 
   } catch (e) {
     noteError(e.message);
     notify('puuush', t('note.failed', { error: e.message }));
-    uploading = false;
     broadcast('puuush:progress', { state: 'error', message: e.message });
+    // Человек уже получил это сообщение: вызывающий, у которого свой
+    // уведомитель (снимок по хоткею), не должен показывать его второй раз.
+    e.reported = true;
     throw e;
+  } finally {
+    uploading = false;
   }
 }
 
@@ -311,6 +257,7 @@ async function shoot(mode = 'link') {
       if (!store.getSettings().keepLocalCopy) discard(shot.path);
     }
   } catch (e) {
+    if (e && e.reported) return;
     const msg = String(e && e.message ? e.message : e);
     notify('puuush', t('note.shotFailed', { error: msg }));
     broadcast('puuush:progress', { state: 'error', message: msg });
@@ -434,6 +381,11 @@ function buildTrayMenu() {
   );
 }
 
+function startTray() {
+  tray = new Tray(trayImage());
+  buildTrayMenu();
+}
+
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) {
     settingsWin.show();
@@ -494,14 +446,12 @@ function takeHotkey(hotkey, onPress) {
   }
   if (!ok) {
     // Не молчим: неработающий хоткей — это ровно то, из-за чего приходят потом.
-    const win = openSettings();
-    setTimeout(() => {
-      win.webContents.send('puuush:progress', {
-        state: 'error',
-        message: t('note.hotkeyFailed', { hotkey }),
-      });
-    }, 800);
+    // Окно настроек сюда не открываем: приложение без главного окна не должно
+    // выскакивать на экран само. Причина видна в трее, в уведомлении и в
+    // открытом окне, если оно уже есть.
+    noteError(t('note.hotkeyFailed', { hotkey }));
     notify('puuush', t('note.hotkeyTaken', { hotkey }));
+    broadcast('puuush:progress', { state: 'error', message: t('note.hotkeyFailed', { hotkey }) });
   }
   return ok;
 }
@@ -634,191 +584,6 @@ function registerIpc() {
   });
 }
 
-function ipcRegisterRemoved() {}
-
-/**
- * Открывает окно скрытно и собирает ошибки renderer'а.
- * Ошибки в preload/разметке иначе видны только пользователю — в виде молча
- * неработающей кнопки, и диагностировать их приходится вслепую.
- */
-function checkRenderer(file, checkExpr) {
-  return new Promise((resolve) => {
-    const win = new BrowserWindow({
-      show: false,
-      width: 800,
-      height: 600,
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-    const errors = [];
-    let done = false;
-
-    const finish = (extra) => {
-      if (done) return;
-      done = true;
-      if (!win.isDestroyed()) win.destroy();
-      resolve(extra ? errors.concat([extra]) : errors);
-    };
-
-    // Electron <35 передаёт позиционные аргументы, >=35 — объект события.
-    win.webContents.on('console-message', (...args) => {
-      const ev = args[0];
-      const modern = args.length === 1 && ev && typeof ev === 'object' && 'message' in ev;
-      const level = modern ? ev.level : args[1];
-      const msg = modern ? ev.message : args[2];
-      const line = modern ? ev.lineNumber : args[3];
-      const src = modern ? ev.sourceId : args[4];
-      if (level >= 2) errors.push(`${msg} (${path.basename(src || '')}:${line})`);
-    });
-    win.webContents.on('preload-error', (_e, p, err) =>
-      errors.push(`preload ${path.basename(p)}: ${err}`)
-    );
-    win.webContents.once('did-finish-load', () => {
-      // Даём renderer'у отработать инициализацию, затем спрашиваем результат.
-      // Промис прямо в executeJavaScript не проходит: ожидание уходит в
-      // renderer и main-процесс теряет управление до его разрешения.
-      setTimeout(async () => {
-        let problem = '';
-        try {
-          problem = await win.webContents.executeJavaScript(checkExpr, true);
-        } catch (e) {
-          problem = t('selftest.checkFailed', { error: e.message });
-        }
-        finish(typeof problem === 'string' ? problem : '');
-      }, 1500);
-    });
-
-    win.loadFile(path.join(__dirname, file)).catch((e) =>
-      finish(t('selftest.fileNotLoaded', { error: e.message }))
-    );
-    setTimeout(() => finish(t('selftest.windowTimeout')), 10000);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Диагностика: puuush --selftest
-//
-// Прогоняет на себе всё, что нельзя проверить чтением кода: берёт экран,
-// режет область, создаёт трей, занимает хоткей и заливает файл. Нужен на
-// сервере без монитора и после обновления Electron.
-// ---------------------------------------------------------------------------
-/** Крошечный настоящий PNG 1x1: проверяем загрузку без настоящего снимка экрана. */
-function png1px() {
-  return Buffer.from(
-    '89504e470d0a1a0a0000000d4948445200000001000000010806000000' +
-    '1f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd4' +
-    '0000000049454e44ae426082',
-    'hex'
-  );
-}
-
-async function runSelfTest() {
-  const rows = [];
-  const step = (ok, name, note) => rows.push({ ok, name, note });
-  const s = store.getSettings();
-  setLang(s.lang);
-  registerIpc(); // окно настроек ходит в IPC, без них оно не инициализируется
-
-  try {
-    const { grabDisplay, displayUnderCursor } = require('./capture');
-    const display = displayUnderCursor();
-    const { image, ratio } = await grabDisplay(display);
-    const size = image.getSize();
-    // Пишем и запрошенный масштаб, и фактическое отношение: расхождение между
-    // ними — признак дробного масштабирования на Linux, и его полезно видеть.
-    const wanted = (display.scaleFactor || 1);
-    step(true, t('selftest.capture'),
-      `${size.width}x${size.height} px, ` +
-      t('selftest.frameNote', { ratio: ratio.x.toFixed(2) }) +
-      (Math.abs(ratio.x - wanted) > 0.01
-        ? t('selftest.scaleNote', { scale: wanted })
-        : ''));
-
-    const cut = image.crop({
-      x: Math.round(size.width * 0.1),
-      y: Math.round(size.height * 0.1),
-      width: Math.max(1, Math.round(size.width * 0.25)),
-      height: Math.max(1, Math.round(size.height * 0.25)),
-    });
-    // Режем кусок экрана, чтобы проверить сам механизм нарезки, но наружу
-    // его не отправляем: selftest обычно запускают в cron, и настоящий снимок
-    // экрана, улетающий на публичный хостинг по расписанию, это утечка, о
-    // которой README не говорит ни слова.
-    const file = path.join(store.shotsDir(), 'selftest.png');
-    fs.writeFileSync(file, cut.toPNG());
-    step(fs.statSync(file).size > 0, t('selftest.crop'),
-      `${cut.getSize().width}x${cut.getSize().height} -> ${file}`);
-
-    // Трея в системе может не быть вовсе. Падение трея считается ошибкой
-    // намеренно: без трея приложением нечем управлять, и cron-проверка
-    // должна показать это красным, а не тихо пройти.
-    try {
-      tray = new Tray(trayImage());
-      buildTrayMenu();
-      step(true, t('selftest.tray'),
-        t('selftest.trayIcon', { state: trayImage().isEmpty() ? t('selftest.not') : '' }));
-    } catch (e) {
-      step(false, t('selftest.tray'), t('selftest.noTray', { error: e.message }));
-    }
-
-    const hot = applyHotkeys();
-    step(hot.hotkey, t('selftest.hotkey'),
-      hot.hotkey
-        ? t('selftest.hotkeyOk', { hotkey: s.hotkey })
-        : t('selftest.hotkeyFail', { hotkey: s.hotkey }));
-    step(hot.imageHotkey, t('selftest.hotkey'),
-      hot.imageHotkey
-        ? t('selftest.hotkeyOk', { hotkey: s.imageHotkey })
-        : t('selftest.hotkeyFail', { hotkey: s.imageHotkey }));
-
-    // Наружу уходит сгенерированная картинка 1x1, а не кусок экрана. Свой
-    // сервер настроен не всегда, а откат на catbox с настоящим снимком экрана
-    // внутри противоречит тому, ради чего приложение писалось.
-    const probeFile = path.join(store.shotsDir(), 'selftest-upload.png');
-    fs.writeFileSync(probeFile, png1px());
-    try {
-      const r = await publish(probeFile, { host: s.host, own: s.own, onStep: () => {} });
-      step(true, t('selftest.upload'), `${r.url} (${hostLabel(r.host)})`);
-    } finally {
-      try { fs.unlinkSync(probeFile); } catch (e) { /* не мешает */ }
-      try { fs.unlinkSync(file); } catch (e) { /* не мешает */ }
-    }
-
-    const setErr = await checkRenderer('renderer/settings.html', `
-      (function () {
-        var h = document.getElementById('hotkey');
-        var sel = document.getElementById('host');
-        if (!h || !sel) return ${JSON.stringify(t('selftest.noHotkeyOrHost'))};
-        if (!h.value) return ${JSON.stringify(t('selftest.noHotkeyValue'))};
-        if (sel.options.length < 4) return ${JSON.stringify(t('selftest.hostOptions', { count: '' }))} + sel.options.length;
-        if (document.getElementById('ownBox').style.display === 'none')
-          return ${JSON.stringify(t('selftest.ownBoxHidden', { mode: '' }))} + sel.value;
-        return '';
-      })()
-    `);
-    step(setErr.length === 0, t('selftest.settingsWindow'),
-      setErr.length ? setErr.join(' | ') : t('selftest.loadsOk'));
-
-    const ovErr = await checkRenderer('renderer/overlay.html',
-      `typeof window.puuush.submitRegion === 'function' ? '' : ${JSON.stringify(t('selftest.noBridge'))}`);
-    step(ovErr.length === 0, t('selftest.overlayWindow'),
-      ovErr.length ? ovErr.join(' | ') : t('selftest.loadsOk'));
-  } catch (e) {
-    step(false, t('selftest.failure'), e.message);
-  }
-
-  const w = Math.max(...rows.map((r) => r.name.length));
-  for (const r of rows) {
-    process.stdout.write(
-      `${r.ok ? '  OK  ' : ' FAIL '}  ${r.name.padEnd(w)}  ${r.note || ''}\n`
-    );
-  }
-  const failed = rows.filter((r) => !r.ok).length;
-  process.exit(failed ? 1 : 0);
-}
 
 // ---------------------------------------------------------------------------
 // Запуск
@@ -875,7 +640,7 @@ if (cliIdx !== -1 || testIdx !== -1) {
 
   app.whenReady().then(() => {
     if (cliIdx !== -1) return runCli(process.argv.slice(cliIdx + 1));
-    return runSelfTest();
+    return runSelfTest({ registerIpc, startTray, trayImage, applyHotkeys, hostLabel });
   });
 } else {
   const gotLock = app.requestSingleInstanceLock();
@@ -919,8 +684,7 @@ if (cliIdx !== -1 || testIdx !== -1) {
         const w = openSettings();
         w.setAlwaysOnTop(true);
       } else {
-        tray = new Tray(trayImage());
-        buildTrayMenu();
+        startTray();
         app.dock?.hide?.();
       }
 

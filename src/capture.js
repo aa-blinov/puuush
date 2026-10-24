@@ -8,6 +8,10 @@
  * рамку, а мы режем исходный nativeImage, а не картинку из renderer.
  *
  * Нативных модулей нет намеренно: иначе три отдельные сборки вместо одной.
+ *
+ * Резка идёт в пикселях кадра, а не указателя. display.scaleFactor на части
+ * систем врёт, поэтому масштаб берётся из фактического размера кадра (см.
+ * grabDisplay): иначе снимок на Retina выходит вдвое меньше и не из того места.
  */
 
 const path = require('node:path');
@@ -173,24 +177,8 @@ function pickRegion(image, display, ratio) {
  */
 function ipcOnce(win, channel, handler) {
   const ipc = win.webContents.ipc;
-  const off = typeof ipc && typeof ipc.on === 'function'
-    ? () => ipc.removeListener(channel, wrapped)
-    : () => win.webContents.removeListener('ipc-message', wrapped);
-  function wrapped(...args) {
-    off();
-    handler(...args);
-  }
-  if (typeof ipc === 'object' && typeof ipc.on === 'function') {
-    ipc.on(channel, wrapped);
-  } else {
-    // Запасной путь для версий без webContents.ipc: тот же контракт, но канал
-    // приходит вторым аргументом.
-    win.webContents.on('ipc-message', (_e, ch, ...rest) => {
-      if (ch !== channel) return;
-      wrapped(_e, ...rest);
-    });
-  }
-  return off;
+  ipc.once(channel, handler);
+  return () => ipc.removeListener(channel, handler);
 }
 
 /**

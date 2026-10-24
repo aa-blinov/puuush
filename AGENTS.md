@@ -33,6 +33,8 @@ windows first, and `npm run check` is what CI runs.
 | Path | What it holds |
 | --- | --- |
 | `src/main.js` | The tray, the global hotkey, the region picker, the settings window. The only file that touches Electron's `app`. |
+| `src/cli.js`, `src/selftest.js` | `--cli` and `--selftest`. Both get what they need from `main.js` as arguments, none touches the tray itself. |
+| `src/hotkey.js` | Hotkey string parsing. Pure. |
 | `src/capture.js` | The screen capture and the crop. Knows about display scaling, nothing else. |
 | `src/clipboard.js` | The clipboard: text, the picture out of it, the picture into it. Asynchronous in Electron 44, so every call is awaited. |
 | `src/upload.js` | The upload targets, the fallback order, the file name rules. Knows nothing about Electron. |

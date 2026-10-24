@@ -186,6 +186,7 @@ instead of quietly disappearing.
 | Path | What it holds |
 | --- | --- |
 | `src/main.js` | The tray, the hotkey, the region picker, the settings window. |
+| `src/cli.js`, `src/selftest.js`, `src/hotkey.js` | The command line mode, `--selftest`, hotkey parsing. |
 | `src/capture.js` | The screen capture and the crop. |
 | `src/upload.js` | The upload targets and the fallback order. |
 | `src/store.js` | The settings file. |

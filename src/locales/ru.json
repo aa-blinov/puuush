@@ -86,6 +86,7 @@
   "store.empty": "пуст",
   "store.broken": "повреждён, JSON не читается",
   "store.unexpected": "неожиданная структура",
+  "store.badValue": "значение настройки {key} приложение не принимает",
   "store.cannotWrite": "не смог записать settings.json: нет прав или кончилось место",
   "capture.noDisplays": "не удалось получить список экранов",
   "capture.empty": "(пусто)",

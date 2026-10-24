@@ -86,6 +86,7 @@
   "store.empty": "empty",
   "store.broken": "broken, the JSON is not readable",
   "store.unexpected": "unexpected structure",
+  "store.badValue": "setting {key} has a value the app does not accept",
   "store.cannotWrite": "could not write settings.json: no permission or out of space",
   "capture.noDisplays": "could not get the list of screens",
   "capture.empty": "(empty)",
