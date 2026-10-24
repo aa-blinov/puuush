@@ -423,3 +423,34 @@ test('X-Real-IP принимается только из сети edge 172.40.0.
   // Прямой клиент с подделанным заголовком остаётся сам собой.
   assert.strictEqual(server.clientIp(req('198.51.100.4', '203.0.113.9')), '198.51.100.4');
 });
+
+test('поломка настроек снимается, когда файл снова читается', () => {
+  withStore((load, dir) => {
+    const f = path.join(dir, 'settings.json');
+    fs.writeFileSync(f, '{oops');
+    const store = load();
+    store.getSettings();
+    assert.ok(store.brokenReason(), 'битый файл должен ставить признак');
+    // Человек поправил файл руками: перезапуск не должен быть нужен.
+    fs.writeFileSync(f, '{"host":"own"}');
+    store.getSettings();
+    assert.strictEqual(store.brokenReason(), null, 'прочитанный файл снимает признак');
+  });
+});
+
+test('потолки ответа считают байты, а не чанки', async () => {
+  const big = Buffer.alloc(5 * 1024 * 1024, 7);
+  const srv = http.createServer((q, s) => { s.writeHead(200); s.end(big); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${srv.address().port}/`;
+  try {
+    // stopAfter обязан оборвать чтение на заголовке и первых байтах: раньше
+    // он сравнивался с числом чанков, и тело приходило почти целиком.
+    const r = await upload.request(url, { maxBytes: 128, stopAfter: 128 });
+    assert.strictEqual(r.body.length, 128);
+    // Общий потолок тоже в байтах: 5 МБ через лимит в 2 МБ не проходят.
+    await assert.rejects(upload.request(url), (e) => e.tooBig === true);
+  } finally {
+    await new Promise((r) => srv.close(r));
+  }
+});
