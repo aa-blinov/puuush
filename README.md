@@ -112,7 +112,7 @@ tells its own files from a file somebody else posted.
 
 The settings window holds the two hotkeys (the link, and the picture alone),
 the upload target, and the behaviour
-around the tray. The window is a separate window, and it closes to the tray
+around the tray (including start at login on macOS and Windows). The window is a separate window, and it closes to the tray
 by default.
 
 The server reads a JSON file, `/srv/puuush-server/config.json` by default,

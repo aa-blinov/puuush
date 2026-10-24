@@ -109,6 +109,10 @@ function pickRegion(image, display, ratio) {
       resolve(value);
     };
 
+    // Файл, брошенный в окно, иначе превращает его в просмотр этого файла.
+    win.webContents.on('will-navigate', (e) => e.preventDefault());
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
     win.on('closed', () => finish(null));
     win.webContents.on('render-process-gone', () => finish(null));
 

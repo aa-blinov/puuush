@@ -403,6 +403,10 @@ function openSettings() {
       nodeIntegration: false,
     },
   });
+  // Файл, брошенный мимо зоны загрузки, иначе уводит окно на этот файл, и
+  // интерфейс пропадает до перезапуска.
+  settingsWin.webContents.on('will-navigate', (e) => e.preventDefault());
+  settingsWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
   settingsWin.on('closed', () => { settingsWin = null; });
   return settingsWin;
@@ -411,6 +415,11 @@ function openSettings() {
 // ---------------------------------------------------------------------------
 // Хоткей
 // ---------------------------------------------------------------------------
+
+/** Автозапуск есть только в macOS и Windows; на Linux вызов Electron молчит. */
+function applyLogin(s) {
+  app.setLoginItemSettings({ openAtLogin: !!s.launchAtLogin });
+}
 
 /**
  * Занимает обе комбинации: со ссылкой и с одной картинкой. Возвращает, какая
@@ -483,7 +492,8 @@ function registerIpc() {
     // как «занято другим приложением», хотя занято собой: отсекаем на входе.
     const merged = { ...store.getSettings(), ...(patch || {}) };
     if (merged.hotkey === merged.imageHotkey) throw new Error(t('note.sameHotkeys'));
-    const next = store.setSettings(patch || {});
+    const before = store.getSettings();
+    let next = store.setSettings(patch || {});
     // Язык поменяли: главный процесс переводит вслух, трей и меню должны
     // заговорить на нём же сразу, а не после перезапуска.
     if (next.lang !== getLang()) setLang(next.lang);
@@ -493,7 +503,23 @@ function registerIpc() {
     store.clearBroken();
     // Если комбинацию держат другие, на диске лежит новая, а работает старая.
     // Окну обязательно нужно знать, что сохранённое значение не применено.
-    const applied = applyHotkeys();
+    let applied = applyHotkeys();
+    // applyHotkeys снимает ВСЕ комбинации перед занятием, поэтому отказ новой
+    // оставлял без хоткея и прежнюю рабочую. Откатываем на диске только то, что
+    // занять не вышло, и занимаем прежнюю заново.
+    const back = {};
+    for (const k of ['hotkey', 'imageHotkey']) {
+      if (!applied[k] && patch && patch[k] !== undefined && patch[k] !== before[k]) back[k] = before[k];
+    }
+    if (Object.keys(back).length) {
+      next = store.setSettings(back);
+      const again = applyHotkeys();
+      applied = {
+        hotkey: back.hotkey === undefined && again.hotkey,
+        imageHotkey: back.imageHotkey === undefined && again.imageHotkey,
+      };
+    }
+    applyLogin(next);
     return { ...next, hotkeyApplied: applied.hotkey, imageHotkeyApplied: applied.imageHotkey };
   });
   handle('puuush:get-history', () => store.getHistory());
@@ -689,6 +715,7 @@ if (cliIdx !== -1 || testIdx !== -1) {
       }
 
       applyHotkeys();
+      applyLogin(s);
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

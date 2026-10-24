@@ -470,6 +470,9 @@ test('hasModifier: хоткей без модификатора отсекает
   assert.ok(!hasModifier('Enter'));
   assert.ok(!hasModifier('Shift+'));
   assert.ok(!hasModifier('Foo+S'));
+  // Shift один не модификатор: Shift+A перехватил бы заглавную A везде.
+  assert.ok(!hasModifier('Shift+A'));
+  assert.ok(hasModifier('Shift+Alt+A'));
 });
 
 test('setSettings не кладёт на диск то, что getSettings не примет', () => {
@@ -483,4 +486,182 @@ test('setSettings не кладёт на диск то, что getSettings не 
     assert.strictEqual(store.setSettings({ host: 'own', own: { base_url: 'https://x.y' } }).host, 'own');
     assert.strictEqual(store.brokenReason(), null);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Раунд QA 1.4.0
+// ---------------------------------------------------------------------------
+
+test('keyFromEvent строит клавишу из event.code, а не из event.key', async () => {
+  const { keyFromEvent } = await import('../renderer/settings/lib/hotkey.js');
+  const ev = (code, mods = {}) => ({ code, key: 'Ы', ...mods });
+  // Русская раскладка и Option на macOS: key бесполезен, code честный.
+  assert.strictEqual(keyFromEvent(ev('KeyS', { ctrlKey: true, shiftKey: true })), 'Control+Shift+S');
+  assert.strictEqual(keyFromEvent(ev('Digit1', { shiftKey: true, ctrlKey: true })), 'Control+Shift+1');
+  assert.strictEqual(keyFromEvent(ev('KeyS', { altKey: true, metaKey: true })), 'Alt+Command+S');
+  assert.strictEqual(keyFromEvent(ev('F24', { ctrlKey: true })), 'Control+F24');
+  assert.strictEqual(keyFromEvent(ev('ArrowLeft', { ctrlKey: true })), 'Control+Left');
+  assert.strictEqual(keyFromEvent(ev('Enter', { ctrlKey: true })), 'Control+Return');
+  assert.strictEqual(keyFromEvent(ev('Minus', { ctrlKey: true })), 'Control+-');
+  assert.strictEqual(keyFromEvent(ev('Backquote', { ctrlKey: true })), 'Control+`');
+  assert.strictEqual(keyFromEvent(ev('NumpadAdd', { ctrlKey: true })), 'Control+numadd');
+  assert.strictEqual(keyFromEvent(ev('Numpad7', { ctrlKey: true })), 'Control+num7');
+  // Сам модификатор и неизвестный код игнорируются.
+  assert.strictEqual(keyFromEvent(ev('ShiftLeft', { shiftKey: true })), null);
+  assert.strictEqual(keyFromEvent(ev('F25', { ctrlKey: true })), null);
+  assert.strictEqual(keyFromEvent(ev('IntlBackslash', { ctrlKey: true })), null);
+});
+
+/** Запрос с телом, которое перехватывает тест. */
+async function captureBody(file, opts) {
+  let body = null;
+  const prev = upload.__setRequestForTests(async (url, o) => {
+    body = o.body;
+    return { status: 500, headers: {}, body: Buffer.from('x') };
+  });
+  try {
+    await upload.publish(file, opts).catch(() => {});
+  } finally {
+    upload.__restoreRequestForTests(prev);
+  }
+  return body && body.toString('latin1');
+}
+
+test('имя файла в multipart проходит safeName: кавычка и CRLF не ломают тело', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-name-'));
+  const file = path.join(dir, 'a"b\r\nc.png');
+  fs.writeFileSync(file, Buffer.alloc(16, 0x41));
+  try {
+    const body = await captureBody(file, { host: 'own', own: { base_url: 'https://x.test', write_key: 'k'.repeat(20) } });
+    const line = /Content-Disposition: form-data; name="file"; filename="([^\r\n]*)"\r\n/.exec(body);
+    assert.ok(line, 'заголовок части цельный, без лишних кавычек и CRLF');
+    assert.match(line[1], /^[A-Za-z0-9._-]+$/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('не-JSON ответ своего сервера и хостинга не даёт сырой SyntaxError', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-json-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, Buffer.alloc(16, 0x41));
+  const prev = upload.__setRequestForTests(async () => ({
+    status: 200, headers: {}, body: Buffer.from('<html>proxy stub</html>'),
+  }));
+  const prevHosts = upload.__setHostsForTests([
+    { name: 'h', url: 'https://h.test/u', fields: {}, fileField: 'f', json: 'files.0.url' },
+  ]);
+  try {
+    await assert.rejects(
+      upload.publish(file, { host: 'own', own: { base_url: 'https://x.test', write_key: 'k'.repeat(20) } }),
+      (e) => e.ownServer === true && e.message === t('upload.ownNoUrl'));
+    await assert.rejects(
+      upload.publish(file, { host: 'h' }),
+      (e) => !/Unexpected token|JSON/.test(e.message) &&
+        e.message.includes(t('upload.noLinkInResponse', { text: '' }).split(':')[0]));
+  } finally {
+    upload.__restoreRequestForTests(prev);
+    upload.__restoreHostsForTests(prevHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('publish на папку даёт человеческую ошибку, а не EISDIR', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-dir-'));
+  try {
+    await assert.rejects(upload.publish(dir), (e) =>
+      e.message === t('upload.notFile', { path: dir }) && !/EISDIR/.test(e.message));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('предел запроса растёт с размером тела', async () => {
+  // Базовый предел 300 мс, ответ льётся 800 мс без пауз дольше 100 мс, а тело в
+  // 600 КБ добавляет 3 с. Раньше общий таймер рвал такой запрос на 300 мс.
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200);
+      let n = 0;
+      const timer = setInterval(() => {
+        res.write('x');
+        if (++n === 8) { clearInterval(timer); res.end(); }
+      }, 100);
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}/`;
+    const res = await upload.request(url, { method: 'POST', body: Buffer.alloc(600 * 1024), timeout: 300 });
+    assert.strictEqual(res.body.length, 8);
+    await assert.rejects(upload.request(url, { timeout: 300 }),
+      /./, 'запрос без тела остаётся под базовым пределом');
+  } finally {
+    srv.closeAllConnections?.();
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test('причина поломки настроек переводится при вызове, а не при чтении', () => {
+  const { setLang } = require('../src/i18n.js');
+  withStore((load, dir) => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{oops');
+    const store = load();
+    setLang('ru');
+    try {
+      store.getSettings(); // при старте чтение идёт до setLang
+      const ru = store.brokenReason();
+      setLang('en');
+      const en = store.brokenReason();
+      assert.notStrictEqual(ru, en, 'после смены языка текст меняется');
+      assert.ok(en.includes(t('store.broken')), en);
+      assert.ok(!/[а-я]/i.test(en), 'английский баннер без русского: ' + en);
+    } finally {
+      setLang('en');
+    }
+  });
+});
+
+test('launchAtLogin: по умолчанию выключен, принимает только boolean', () => {
+  withStore((load) => {
+    const store = load();
+    assert.strictEqual(store.DEFAULTS.launchAtLogin, false);
+    assert.strictEqual(store.setSettings({ launchAtLogin: true }).launchAtLogin, true);
+    assert.throws(() => store.setSettings({ launchAtLogin: 'yes' }), /launchAtLogin/);
+  });
+});
+
+test('сервер превращает исполняемые типы в .txt с типом text/plain', async () => {
+  for (const n of ['a.html', 'a.HTM', 'a.xhtml', 'a.svg', 'a.js', 'a.mjs']) {
+    assert.match(server.safeName(n), /\.txt$/, n);
+  }
+  assert.match(server.safeName('a.png'), /\.png$/);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-active-'));
+  const cfgPath = path.join(dir, 'config.json');
+  const key = 'e'.repeat(64);
+  fs.writeFileSync(cfgPath, JSON.stringify({
+    host: '127.0.0.1', port: 0, dir, write_key: key,
+    public_base: 'https://x.test', max_bytes: 1e6,
+    max_total_bytes: 1e7, max_files: 10, keep_days: 30,
+  }));
+  const prev = process.env.PUUUSH_CONFIG;
+  process.env.PUUUSH_CONFIG = cfgPath;
+  const srv = server.createServer(server.loadConfig());
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${srv.address().port}/v1/uploads`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'text/html', 'X-Filename': 'x.html' },
+      body: '<script>1</script>',
+    });
+    const meta = await res.json();
+    assert.match(meta.name, /\.txt$/);
+    assert.match(meta.mime, /^text\/plain/);
+  } finally {
+    await new Promise((r) => srv.close(r));
+    if (prev === undefined) delete process.env.PUUUSH_CONFIG;
+    else process.env.PUUUSH_CONFIG = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

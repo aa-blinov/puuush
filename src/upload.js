@@ -74,7 +74,7 @@ function multipart(fields, fileField, filePath, filename) {
     );
   }
   push(`--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; ` +
-    `filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
+    `filename="${safeName(filename)}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
   chunks.push(fs.readFileSync(filePath));
   push(`\r\n--${boundary}--\r\n`);
 
@@ -187,9 +187,12 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
       // setTimeout ограничивает простой между пакетами, а не всю операцию:
       // сервер, шлющий данные без пауз, держал бы нас вечно. Отдельный
       // предельный таймер ограничивает длительность целиком.
+      // Предел растёт с телом: файл в 60 МБ на медленном канале льётся дольше
+      // минуты, и общий предел в 60 с рвал его на каждом хостинге подряд.
+      const limit = Math.min(timeout + Math.ceil((body ? body.length : 0) / 204800) * 1000, 600000);
       const deadline = setTimeout(
         () => req.destroy(new Error(t('upload.timeout'))),
-        timeout
+        Math.max(timeout, limit)
       );
       deadline.unref?.();
       req.setTimeout(timeout, () => req.destroy(new Error(t('upload.timeout'))));
@@ -305,7 +308,14 @@ async function uploadOwn(host, filePath, onStep = () => {}) {
     throw ownError(t('upload.ownHttp', { status: res.status, detail }));
   }
 
-  const meta = JSON.parse(res.body.toString('utf8'));
+  let meta;
+  try {
+    meta = JSON.parse(res.body.toString('utf8'));
+  } catch (e) {
+    // Заглушка прокси с HTML и кодом 200: сырое «Unexpected token '<'» не
+    // помечено ownError и не объяснило бы человеку, что произошло.
+    throw ownError(t('upload.ownNoUrl'));
+  }
   if (!meta || typeof meta.url !== 'string') throw ownError(t('upload.ownNoUrl'));
 
   onStep(t('upload.ownChecking'));
@@ -335,7 +345,11 @@ async function uploadTo(host, filePath) {
   const text = res.body.toString('utf8').trim();
   let url = text;
   if (host.json) {
-    url = pick(JSON.parse(text), host.json);
+    try {
+      url = pick(JSON.parse(text), host.json);
+    } catch (e) {
+      url = null; // не JSON: ниже уйдёт в обычную ошибку «нет ссылки»
+    }
   }
   if (typeof url !== 'string' || !/^https?:\/\//.test(url)) {
     throw new Error(t('upload.noLinkInResponse', { text: text.slice(0, 80) }));
@@ -446,7 +460,10 @@ async function publish(filePath, opts = {}) {
   // файл ушёл в публичный интернет.
   let ownFailed = null;
   if (!fs.existsSync(filePath)) throw new Error(t('upload.noFile', { path: filePath }));
-  const size = fs.statSync(filePath).size;
+  const st = fs.statSync(filePath);
+  // Папка проходит existsSync и падала бы сырым EISDIR на каждом хостинге.
+  if (!st.isFile()) throw new Error(t('upload.notFile', { path: filePath }));
+  const size = st.size;
   if (!size) throw new Error(t('upload.emptyFile', { path: filePath }));
   // Файл читается в память целиком и склеивается из чанков, то есть
   // занимает примерно удвоенный объём: 400 МБ файла съедали 880 МБ RAM.

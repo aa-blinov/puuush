@@ -60,6 +60,8 @@ const MIME = {
   '.zip': 'application/zip', '.gz': 'application/gzip',
 };
 
+const ACTIVE_EXT = new Set(['html', 'htm', 'xhtml', 'svg', 'js', 'mjs']);
+
 /**
  * Имя файла для ссылки и для диска.
  *
@@ -76,7 +78,10 @@ function safeName(raw, fallback = 'file.bin') {
   if (!stem) stem = fallback.replace(/\.[^.]*$/, '');
   stem = stem.slice(0, 48) || 'file';
   const tail = crypto.createHash('sha1').update(String(raw || stem)).digest('hex').slice(0, 6);
-  const cleanExt = ext.replace(/^\./, '').slice(0, 8);
+  let cleanExt = ext.replace(/^\./, '').slice(0, 8);
+  // Caddy отдаёт файлы с того же origin, что и домен сервера: .html или .svg
+  // по ссылке стали бы исполняемой страницей на этом домене.
+  if (ACTIVE_EXT.has(cleanExt)) cleanExt = 'txt';
   return cleanExt ? `${stem}-${tail}.${cleanExt}` : `${stem}-${tail}`;
 }
 
@@ -232,6 +237,8 @@ async function writeUpload(cfg, rawName, data, extra = {}) {
     expires_at: new Date(Date.now() + cfg.keepDays * 86400e3).toISOString(),
     ...extra,
   };
+  // .txt всегда text/plain: заявленный клиентом text/html не должен выжить.
+  if (path.extname(name) === '.txt') meta.mime = mimeFor(name);
 
   // Временный файл лежит в целевом каталоге, а не в общем tmp: rename
   // атомарен только внутри одного устройства, а при попытке перенести файл

@@ -20,6 +20,7 @@ const DEFAULTS = {
   openAfterUpload: false,
   keepLocalCopy: true,
   saveDir: '', // пусто -> Pictures/puuush
+  launchAtLogin: false, // только macOS и Windows; на Linux Electron это не умеет
   lang: 'en', // язык интерфейса; русский включается в настройках
 };
 
@@ -74,9 +75,11 @@ const SETTINGS_FILE = 'settings.json';
  * пустой, а признак поломки настроек выставлялся историей — то есть любая
  * загрузка блокировалась навсегда.
  */
-function noteBroken(name, reason) {
-  console.error(`${name}: ${reason}`);
-  if (name === SETTINGS_FILE) settingsBroken = `${name} ${reason}`;
+function noteBroken(name, key, vars) {
+  console.error(`${name}: ${t(key, vars)}`);
+  // Хранится ключ, а не готовая строка: чтение при старте идёт до setLang,
+  // и переведённый текст застревал бы на языке момента чтения.
+  if (name === SETTINGS_FILE) settingsBroken = { name, key, vars };
 }
 
 const validSettings = (d) =>
@@ -97,13 +100,13 @@ function readJson(name, fallback, validate) {
     raw = fs.readFileSync(file(name), 'utf8');
   } catch (e) {
     if (e.code === 'ENOENT') return fallback; // файла ещё нет, это нормально
-    noteBroken(name, t('store.notRead', { error: e.code || e.message }));
+    noteBroken(name, 'store.notRead', { error: e.code || e.message });
     return fallback;
   }
   // Пустой файл раньше молча превращался в значения по умолчанию: режим
   // «только свой сервер» исчезал без следа. Пустой файл — поломка.
   if (!raw.trim()) {
-    noteBroken(name, t('store.empty'));
+    noteBroken(name, 'store.empty');
     return fallback;
   }
   let data;
@@ -112,11 +115,11 @@ function readJson(name, fallback, validate) {
   } catch (e) {
     // В окно уходит понятная причина, сырое сообщение парсера остаётся в логе.
     console.error(`${name}: ${e.message}`);
-    noteBroken(name, t('store.broken'));
+    noteBroken(name, 'store.broken');
     return fallback;
   }
   if (validate && !validate(data)) {
-    noteBroken(name, t('store.unexpected'));
+    noteBroken(name, 'store.unexpected');
     return fallback;
   }
   return data;
@@ -129,7 +132,7 @@ function clearBroken() {
 
 /** Что сломалось в настройках, либо null, если всё в порядке. */
 function brokenReason() {
-  return settingsBroken;
+  return settingsBroken ? `${settingsBroken.name} ${t(settingsBroken.key, settingsBroken.vars)}` : null;
 }
 
 function getSettings() {
@@ -165,7 +168,7 @@ function setSettings(patch) {
 
 const SETTING_TYPES = {
   hotkey: 'string', imageHotkey: 'string', host: 'string', saveDir: 'string',
-  lang: 'string', openAfterUpload: 'boolean', keepLocalCopy: 'boolean',
+  lang: 'string', openAfterUpload: 'boolean', keepLocalCopy: 'boolean', launchAtLogin: 'boolean',
   own: 'object',
 };
 

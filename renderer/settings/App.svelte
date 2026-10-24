@@ -33,6 +33,9 @@
 
   const bridge = window.puuush;
   const isMac = bridge.platform === 'darwin';
+  // Автозапуск Electron умеет только на macOS и Windows: на Linux чекбокс
+  // обещал бы то, чего не будет.
+  const canLaunchAtLogin = isMac || bridge.platform === 'win32';
 
   /** Настройки целиком: то, что сервер вернул на последний запрос. */
   let settings = {};
@@ -64,6 +67,7 @@
   let saveDir = '';
   let openAfterUpload = false;
   let keepLocalCopy = true;
+  let launchAtLogin = false;
 
   /** Служебное. */
   let ownUrlInvalid = false;
@@ -173,6 +177,7 @@
     ownKey = (next.own && next.own.write_key) || '';
     openAfterUpload = !!next.openAfterUpload;
     keepLocalCopy = next.keepLocalCopy !== false;
+    launchAtLogin = !!next.launchAtLogin;
     saveDir = next.saveDir || '';
     // Язык меняем вместе с настройками: окно перерисовывается само, а
     // главный процесс узнаёт о новом языке из сохранения.
@@ -252,17 +257,19 @@
       // Обязателен хотя бы один модификатор. Без него globalShortcut забирает
       // клавишу у всех приложений сразу: Enter перестаёт работать везде,
       // включая это окно, из которого его только что выбрали.
-      if (!combo || !combo.includes('+')) return;
+      // Shift один не считается: Shift+A отнял бы заглавную A у всех программ.
+      if (!combo || !combo.split('+').slice(0, -1).some((p) => p !== 'Shift')) return;
       const field = listening;
       stopListening();
       const ok = await save({ [field]: combo });
       // Флаг применения называется по полю: hotkeyApplied, imageHotkeyApplied.
-      if (ok && settings && settings[`${field}Applied`] === false) {
-        // Записалось, но занять клавишу не вышло: в приложении работает старая
-        // комбинация, а поле показывало бы новую.
+      const taken = ok && settings && settings[`${field}Applied`] === false;
+      if (taken) {
+        // Главный процесс откатил поле на прежнюю комбинацию и занял её заново:
+        // в поле остаётся она, а не та, что занята.
         fail($t('ui.hotkeyTaken', { hotkey: prettyCombo(combo, isMac) }));
       }
-      if (!ok) {
+      if (!ok || taken) {
         // save() при отказе перечитал настоящие настройки, но оптимистично
         // присвоенное значение комбинации затирало их обратно: поле показывало
         // комбинацию, которой на самом деле нет.
@@ -405,6 +412,10 @@
     await save({ keepLocalCopy });
   }
 
+  async function onLaunchAtLoginChange() {
+    await save({ launchAtLogin });
+  }
+
   async function onSaveDirChange(event) {
     const value = fieldValue(event, saveDir.trim());
     await save({ saveDir: value });
@@ -460,21 +471,18 @@
     await runUpload($t('ui.status.uploadingClipboard'), () => bridge.uploadClipboardImage());
   }
 
-  function onDragOver(event) {
-    event.preventDefault();
-  }
-
   /** Файл выбран перетаскиванием или диалогом: сразу уходит в загрузку. */
   async function onFilesPicked(event) {
     const list = (event && event.detail) || [];
     // Список в поле вкладки нужен только чтобы показать, что файл взяли;
     // после загрузки он снова пуст.
     picked = [];
-    const file = list[0];
-    if (!file) return;
-    const path = bridge.pathForFile(file);
-    if (!path) return fail($t('ui.status.noPath'));
-    await runUpload($t('ui.status.uploadingFile'), () => bridge.uploadFile(path));
+    // Все файлы по очереди: раньше брался только первый, остальные терялись.
+    for (const file of list) {
+      const path = bridge.pathForFile(file);
+      if (!path) return fail($t('ui.status.noPath'));
+      await runUpload($t('ui.status.uploadingFile'), () => bridge.uploadFile(path));
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -590,7 +598,8 @@
   })();
 </script>
 
-<svelte:window on:keydown={onWindowKeydown} />
+<!-- Файл, брошенный мимо зоны загрузки, иначе открылся бы в самом окне. -->
+<svelte:window on:keydown={onWindowKeydown} on:dragover|preventDefault on:drop|preventDefault />
 
 <div class="page">
   <PageHeader
@@ -724,7 +733,7 @@
           </p>
         {/if}
         <p class="text-xs leading-relaxed text-ink-soft">
-          {$t('ui.hint.key', { method: 'POST /v1/uploads' })}
+          {$t(host === 'own' ? 'ui.hint.keyOwn' : 'ui.hint.key', { method: 'POST /v1/uploads' })}
         </p>
       </div>
     </SectionBlock>
@@ -741,6 +750,14 @@
             {$t('ui.check.keepLocalCopy')}
           </Checkbox>
         </div>
+        {#if canLaunchAtLogin}
+          <div>
+            <Checkbox id="launchAtLogin" bind:checked={launchAtLogin} on:change={onLaunchAtLoginChange}>
+              {$t('ui.check.launchAtLogin')}
+            </Checkbox>
+            <p class="mt-1 text-xs leading-relaxed text-ink-soft">{$t('ui.hint.launchAtLogin')}</p>
+          </div>
+        {/if}
 
         <div class="flex items-end gap-3">
           <div class="min-w-0 flex-1">
@@ -764,7 +781,6 @@
       <FileUpload
         label={$t('ui.upload.label')}
         chooseLabel={$t('ui.upload.chooseLabel')}
-        multiple={false}
         bind:files={picked}
         on:change={onFilesPicked}
       />
