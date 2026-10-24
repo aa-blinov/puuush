@@ -70,22 +70,35 @@
   // сторону, и работает на трекпадах без нажатия.
   function onMouseDown(event) {
     if (event.button !== 0) return;
+    // Без этого Chromium на Windows начинает нативное перетаскивание картинки:
+    // mousemove и mouseup перестают приходить, рамка не растёт, и работал
+    // только пробел, которому мышь не нужна.
+    event.preventDefault();
     start = { x: clamp(event.clientX, 0, W), y: clamp(event.clientY, 0, H) };
     end = { ...start };
     box = { ...start, width: 0, height: 0 };
   }
 
+  // Рамка перерисовывается не чаще кадра: мышь шлёт события чаще, а тень в
+  // 9999 px поверх полноэкранной картинки на Windows стоит дорого, и очередь
+  // перерисовок давала отставание рамки от курсора.
+  let frame = 0;
   function onMouseMove(event) {
     if (!start) return;
     const x = clamp(event.clientX, 0, W);
     const y = clamp(event.clientY, 0, H);
     end = { x, y };
-    box = {
-      x: Math.min(start.x, x),
-      y: Math.min(start.y, y),
-      width: Math.abs(x - start.x),
-      height: Math.abs(y - start.y),
-    };
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      if (!start) return;
+      box = {
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y),
+      };
+    });
   }
 
   function onMouseUp() {
@@ -95,6 +108,16 @@
     // вроде 2 на 500 пикселей считалось кликом: человек тянул полоску, чтобы
     // выхватить кусок текста, а улетал весь экран вместе с соседними окнами.
     const moved = Math.hypot(end.x - start.x, end.y - start.y) >= CLICK_SLOP;
+    // Последнее положение мыши должно попасть в рамку до отпускания: кадр мог
+    // ещё не отработать.
+    if (moved) {
+      box = {
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y),
+      };
+    }
     start = null;
     if (!moved) {
       confirm({ x: 0, y: 0, width: W, height: H });
@@ -129,7 +152,7 @@
   }
 </script>
 
-<svelte:window on:mousemove={onMouseMove} on:mouseup={onMouseUp} on:keydown={onKeydown} on:error={onError} />
+<svelte:window on:mousemove={onMouseMove} on:mouseup={onMouseUp} on:keydown={onKeydown} on:error={onError} on:dragstart|preventDefault />
 
 {#if error}
   <div class="err">{error}</div>
@@ -147,6 +170,7 @@
       class="shot"
       src={shotSrc}
       alt=""
+      draggable="false"
       role="presentation"
       style="width: {W}px; height: {H}px"
       on:load={onShotLoad}

@@ -154,7 +154,10 @@ function pickRegion(image, display, ratio) {
       win.show();
       win.focus();
       win.webContents.send('puuush:frame', {
-        dataUrl: image.toDataURL(),
+        // Подложка только показывается, режется оригинал. JPEG кодируется в
+        // разы быстрее PNG и весит в разы меньше: на 4K экране PNG в IPC давал
+        // секунду ожидания до появления окна.
+        dataUrl: 'data:image/jpeg;base64,' + image.toJPEG(85).toString('base64'),
         width: display.bounds.width,
         height: display.bounds.height,
         // Верх рабочей области: под строкой меню на macOS и под верхней панелью
