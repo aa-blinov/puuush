@@ -18,7 +18,10 @@ function hasModifier(combo) {
   // Всё, кроме последнего элемента, обязано быть модификатором.
   const last = parts[parts.length - 1];
   if (!last) return false;
-  return parts.slice(0, -1).every((p) => HOTKEY_MODIFIERS.has(p));
+  const mods = parts.slice(0, -1);
+  // Shift один не годится: Shift+A перехватил бы набор заглавной A во всех
+  // приложениях сразу.
+  return mods.every((p) => HOTKEY_MODIFIERS.has(p)) && mods.some((p) => p !== 'shift');
 }
 
 module.exports = { hasModifier };

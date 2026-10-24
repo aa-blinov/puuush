@@ -78,6 +78,11 @@ Confirmed by the code:
   image from the clipboard.
 - Two shortcuts for a region. One uploads and copies the link. The other
   copies the picture and uploads nothing.
+- A shortcut needs a modifier other than Shift: `Shift+A` would take capital
+  A from every application. A shortcut that cannot be taken leaves the
+  previous one saved and working.
+- "Start at login" (`launchAtLogin`, off by default) exists on macOS and
+  Windows only; Electron cannot do it on Linux, so the checkbox is not shown.
 - The own server is tried first, then catbox, then pomf2, then uguu.
 - The hint in the picker sits below the top of the work area, so on macOS it
   stays off the menu bar.

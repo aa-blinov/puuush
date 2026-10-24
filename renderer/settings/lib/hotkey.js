@@ -26,23 +26,44 @@ export const WORD_NAME = {
   Shift: 'Shift', Space: 'Space', Backspace: 'Backspace',
 };
 
+// Имена клавиш Electron по event.code. Фиксированные имена, а не event.key:
+// на русской раскладке key даёт «Ы» вместо S, с Shift — «!» вместо 1, на macOS
+// с Option — «ß», и Electron такой акселератор не принимает.
+const CODE_NAME = {
+  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+  Space: 'Space', Enter: 'Return', Escape: 'Escape', Tab: 'Tab',
+  Backspace: 'Backspace', Delete: 'Delete', Insert: 'Insert', Home: 'Home',
+  End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+  Minus: '-', Equal: '=', Backquote: '`', BracketLeft: '[', BracketRight: ']',
+  Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/',
+  // «+» в акселераторе только с цифровой клавиатуры, иначе он делит части.
+  NumpadAdd: 'numadd', NumpadSubtract: 'numsub', NumpadMultiply: 'nummult',
+  NumpadDivide: 'numdiv', NumpadDecimal: 'numdec',
+};
+
+function nameFromCode(code) {
+  let m;
+  if ((m = /^Key([A-Z])$/.exec(code))) return m[1];
+  if ((m = /^Digit(\d)$/.exec(code))) return m[1];
+  if ((m = /^Numpad(\d)$/.exec(code))) return 'num' + m[1];
+  if (/^F([1-9]|1\d|2[0-4])$/.test(code)) return code;
+  return CODE_NAME[code] || null;
+}
+
 /**
  * Событие нажатия в строку комбинации.
  *
- * Возвращает null, если нажат сам модификатор: нажатие Shift не должно
- * считаться комбинацией.
+ * Возвращает null, если нажат сам модификатор или клавиша, которой нет в
+ * акселераторах Electron: такое нажатие игнорируется.
  */
 export function keyFromEvent(event) {
+  const key = nameFromCode(event.code);
+  if (!key) return null;
   const parts = [];
   if (event.ctrlKey) parts.push('Control');
   if (event.altKey) parts.push('Alt');
   if (event.shiftKey) parts.push('Shift');
   if (event.metaKey) parts.push('Command');
-
-  let key = event.key;
-  if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return null;
-  if (key === ' ') key = 'Space';
-  if (key.length === 1) key = key.toUpperCase();
   parts.push(key);
   return parts.join('+');
 }

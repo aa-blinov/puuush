@@ -53,7 +53,13 @@ app.whenReady().then(async () => {
   // Те же каналы, что и в главном процессе: тест проверяет окно, а не IPC.
   ipcMain.handle('puuush:get-settings', () => store.getSettings());
   ipcMain.handle('puuush:broken-settings', () => store.brokenReason());
-  ipcMain.handle('puuush:save-settings', (_e, patch) => store.setSettings(patch || {}));
+  // Занятая комбинация: главный процесс откатывает поле и сообщает, что не применено.
+  ipcMain.handle('puuush:save-settings', (_e, patch) => {
+    if (patch && patch.hotkey === 'Control+Alt+Q') {
+      return { ...store.getSettings(), hotkeyApplied: false, imageHotkeyApplied: true };
+    }
+    return store.setSettings(patch || {});
+  });
   ipcMain.handle('puuush:get-history', () => store.getHistory());
   ipcMain.handle('puuush:clear-history', () => store.clearHistory());
   ipcMain.handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, temp: h.temp })));
@@ -163,6 +169,76 @@ app.whenReady().then(async () => {
     'без ключа приложение предупреждает про внешний хостинг',
     ''
   );
+
+  // Подсказка под ключом зависит от режима: в «только свой сервер» внешний
+  // хостинг не обещается, потому что туда ничего не уходит.
+  await run(`(function () {
+    var host = document.getElementById('host');
+    host.value = 'own';
+    host.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+  const ownText = await run(`document.body.textContent`);
+  step(ownText.includes('the upload fails') && !ownText.includes('goes to a public host'),
+    'в режиме own подсказка ключа не обещает внешний хостинг', '');
+  await run(`(function () {
+    var host = document.getElementById('host');
+    host.value = 'auto';
+    host.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+
+  // --- запись хоткея: клавиша по физическому коду, занятая комбинация -----
+  // Окно скрыто и без фокуса: настоящий focus() событие не пошлёт.
+  await run(`document.getElementById('hotkey').dispatchEvent(new FocusEvent('focus'))`);
+  await new Promise((r) => setTimeout(r, 200));
+  // Русская раскладка: key даёт «й», code остаётся KeyQ.
+  await run(`window.dispatchEvent(new KeyboardEvent('keydown',
+    { key: 'й', code: 'KeyQ', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }))`);
+  await new Promise((r) => setTimeout(r, 600));
+  const afterTaken = await run(`({
+    value: document.getElementById('hotkey').value,
+    text: document.body.textContent })`);
+  step(afterTaken.value === (mac ? '⌘⇧S' : 'Ctrl+Shift+S'),
+    'занятая комбинация: в поле прежняя', afterTaken.value);
+  step(afterTaken.text.includes('another application is holding it'),
+    'занятая комбинация: сообщение «занята»', '');
+  await run(`document.getElementById('hotkey').dispatchEvent(new FocusEvent('blur'))`);
+
+  // --- перетаскивание файла ------------------------------------------
+  const drops = await run(`(function () {
+    var over = new Event('dragover', { bubbles: true, cancelable: true });
+    var drop = new Event('drop', { bubbles: true, cancelable: true });
+    document.body.dispatchEvent(over);
+    document.body.dispatchEvent(drop);
+    return { over: over.defaultPrevented, drop: drop.defaultPrevented };
+  })()`);
+  step(drops.over && drops.drop, 'drop мимо зоны отменён: окно не уйдёт на файл', JSON.stringify(drops));
+
+  // Зона загрузки получает drop: у синтетического File нет пути, и окно
+  // отвечает именно этим, а значит обработчик зоны дошёл до onFilesPicked.
+  await run(`(function () {
+    var zone = document.querySelector('[role="button"][tabindex]');
+    var dt = new DataTransfer();
+    dt.items.add(new File(['x'], 'a.png'));
+    zone.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+  step((await run(`document.body.textContent`)).includes('could not work out the path'),
+    'зона загрузки получает drop', '');
+
+  // --- автозапуск: чекбокс только там, где Electron его умеет ----------
+  const hasLogin = await run(`!!document.getElementById('launchAtLogin')`);
+  step(hasLogin === (process.platform !== 'linux'), 'чекбокс автозапуска по платформе', String(hasLogin));
+  if (hasLogin) {
+    await run(`(function () {
+      var box = document.getElementById('launchAtLogin');
+      box.checked = true;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await new Promise((r) => setTimeout(r, 600));
+    step(store.getSettings().launchAtLogin === true, 'автозапуск записан на диск', '');
+  }
 
   // --- язык -----------------------------------------------------------
   // По умолчанию английский: окно открывается на нём, даже если в системе

@@ -279,7 +279,7 @@ app.whenReady().then(async () => {
     },
     hosts: HOSTS,
     history: [],
-    broken: 'settings.json повреждён: JSON не читается',
+    broken: 'settings.json ' + require('../src/locales/en.json')['store.broken'],
   });
 
   await shotOverlay();
