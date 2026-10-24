@@ -146,10 +146,16 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
             // Чанк может прийти целиком больше потолка: берём только нужную
             // часть. Раньше не бралась ничего, и рабочая ссылка на большой файл
             // объявлялась битой.
-            const room = maxBytes - out.length;
-            if (room > 0) out.push(c.length <= room ? c : c.slice(0, room));
+            const room = maxBytes - size;
+            if (room > 0) {
+              const part = c.length <= room ? c : c.subarray(0, room);
+              out.push(part);
+              // Считаем байты, а не чанки: out.length это число кусков, и
+              // оба потолка ниже раньше сравнивались с ним.
+              size += part.length;
+            }
 
-            if (stopAfter && out.length >= stopAfter) {
+            if (stopAfter && size >= stopAfter) {
               // Заголовки уже пришли, первых байт хватает. Досылать остальное
               // незачем: сервер без Range льёт весь файл, а нужен только кусок.
               finish(resolve, {
@@ -158,7 +164,7 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
               res.destroy();
               return;
             }
-            if (out.length >= maxBytes) {
+            if (size >= maxBytes) {
               // Потолок достигнут и останавливать рано: продолжать качать
               // незачем, соединение рвём.
               finish(reject, Object.assign(new Error(t('upload.tooLarge')), { tooBig: true }));

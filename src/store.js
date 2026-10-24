@@ -87,6 +87,10 @@ const validHistory = (d) => Array.isArray(d);
 
 /** Читает JSON и проверяет структуру вызывающим: у настроек и истории она разная. */
 function readJson(name, fallback, validate) {
+  // Признак поломки описывает последнее чтение, а не любое прошлое: иначе
+  // файл, поправленный руками (или удалённый), блокировал бы загрузки до
+  // перезапуска. Каждая ветка поломки ниже выставляет его заново.
+  if (name === SETTINGS_FILE) settingsBroken = null;
   let raw;
   try {
     raw = fs.readFileSync(file(name), 'utf8');
