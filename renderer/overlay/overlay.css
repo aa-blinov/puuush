@@ -31,13 +31,16 @@ body {
   position: absolute;
   inset: 0;
   display: block;
+  -webkit-user-drag: none;
 }
 
-/* Затемнение до начала выделения. */
+/* Затемнение до начала выделения. Мышь сквозь него обязана доходить до
+   подложки: клик по затемнению не доходил, и рамку нельзя было начать. */
 .veil {
   position: absolute;
   inset: 0;
   background: rgb(0 0 0 / 0.45);
+  pointer-events: none;
 }
 
 /* Рамка выделения: тень вокруг неё и есть затемнение. */
@@ -47,6 +50,7 @@ body {
   box-sizing: border-box;
   border: 1px solid var(--ui-ink);
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 0 0 9999px rgb(0 0 0 / 0.45);
+  pointer-events: none;
 }
 
 /* Подпись размера ровно 20 px в высоту: она встаёт над рамкой или под ней. */
