@@ -22,6 +22,8 @@
   "note.failed": "failed: {error}",
   "note.shotFailed": "the screenshot failed: {error}",
   "note.clipboardFailed": "the clipboard did not work, the {what} is below",
+  "toast.link": "Link copied",
+  "toast.image": "Image in the clipboard",
   "note.imageInClipboard": "the image is in the clipboard, nothing was uploaded",
   "note.sameHotkeys": "the two hotkeys must not be the same",
   "note.linkInClipboard": "{source}: the link is in the clipboard",

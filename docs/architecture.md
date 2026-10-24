@@ -19,6 +19,7 @@ repository.
 | `src/main.js` | The tray, the global hotkey, the region picker, the settings window. The only file that touches Electron's `app`. |
 | `src/cli.js` | The command line mode: upload the files given, print the links. |
 | `src/selftest.js` | `--selftest`: runs capture, tray, hotkeys, upload and both windows on the real machine. Gets its tray and hotkey functions from `main.js`. |
+| `src/toast.js` | The corner popup shown when the link or the image reaches the clipboard. Takes no focus, passes the mouse through, closes itself. |
 | `src/hotkey.js` | Parsing of a hotkey string. Pure, tested without Electron. |
 | `src/capture.js` | The screen capture and the crop. It knows about display scaling and nothing else. |
 | `src/upload.js` | The upload targets, the fallback order and the file name rules. It knows nothing about Electron. |
