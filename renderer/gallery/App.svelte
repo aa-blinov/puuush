@@ -12,6 +12,7 @@
   let preview = null;
 
   $: visibleItems = filter === 'all' ? items : items.filter((item) => item.kind === filter);
+  $: document.title = `puuush — ${$t('ui.gallery.title')}`;
 
   onMount(() => {
     load();
@@ -86,7 +87,11 @@
 
 <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-bg">
   <div class="page !max-w-6xl min-h-0 flex-1 overflow-y-auto">
-  <PageHeader title={$t('ui.gallery.title')} description={$t('ui.gallery.description')}>
+  <PageHeader
+    class="[&>div:last-child]:ml-auto [&>div:last-child]:justify-end"
+    title={$t('ui.gallery.title')}
+    description={$t('ui.gallery.description')}
+  >
     <svelte:fragment slot="actions">
       <Button variant="secondary" loading={loading} on:click={load}>
         {$t('ui.gallery.refresh')}
@@ -166,10 +171,11 @@
             <div class="space-y-3 p-3">
               <div class="min-w-0">
                 <p class="truncate text-sm font-medium text-ink" title={item.name}>{item.name}</p>
-                <p class="mt-1 text-xs text-ink-soft">
-                  {kindLabel(item.kind)}{item.at ? ` · ${dateLabel(item.at)}` : ''}
-                  {item.host ? ` · ${item.host}` : ''}
-                </p>
+                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
+                  <span>{kindLabel(item.kind)}</span>
+                  {#if item.at}<span>{dateLabel(item.at)}</span>{/if}
+                  {#if item.host}<span>{item.host}</span>{/if}
+                </div>
                 {#if !item.exists && item.file}
                   <p class="mt-1 text-xs text-ink-faint">{$t('ui.gallery.fileMissing')}</p>
                 {/if}

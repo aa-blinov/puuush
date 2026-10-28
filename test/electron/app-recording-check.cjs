@@ -98,6 +98,8 @@ app.whenReady().then(async () => {
   const win = main.openSettings();
   await new Promise((r) => win.webContents.once('did-finish-load', r));
   await sleep(500);
+  const settingsTitleOk = win.getTitle() === 'puuush — настройки';
+  console.log('  ' + (settingsTitleOk ? 'ОК  ' : 'ПРОВАЛ') + ' системный заголовок настроек: ' + win.getTitle());
   const call = (code) => win.webContents.executeJavaScript(code, true);
   const nativeChromeOk = win.getBounds().height > win.getContentBounds().height && !win.isKiosk();
   const nameOk = app.getName() === 'puuush';
@@ -192,15 +194,35 @@ app.whenReady().then(async () => {
         var cards = Array.from(document.querySelectorAll('article'));
         var card = cards.find(function (item) { return (item.textContent || '').includes(${JSON.stringify(saved || '')}); });
         var video = card && card.querySelector('video');
-        return { found: !!card, video: !!video, controls: !!(video && video.controls), src: video ? video.currentSrc : '' };
+        var header = document.querySelector('header');
+        var actions = header && header.querySelector(':scope > div:last-child');
+        var headerRect = header && header.getBoundingClientRect();
+        var actionsRect = actions && actions.getBoundingClientRect();
+        return {
+          found: !!card,
+          video: !!video,
+          controls: !!(video && video.controls),
+          src: video ? video.currentSrc : '',
+          actionsRight: !!(headerRect && actionsRect && actionsRect.right >= headerRect.right - 1),
+          dots: document.body.innerText.includes('·') || document.querySelectorAll('.rounded-full').length > 0
+        };
       })()`);
       if (galleryVideo && galleryVideo.video && galleryVideo.src) break;
       await sleep(200);
     }
   }
+  const galleryNativeFrame = !!(gallery &&
+    gallery.getBounds().height > gallery.getContentBounds().height &&
+    !gallery.isMenuBarVisible() && gallery.getTitle().startsWith('puuush'));
+  const galleryTitleOk = !!(gallery && gallery.getTitle() === 'puuush — Gallery');
+  console.log('  ' + (galleryNativeFrame ? 'ОК  ' : 'ПРОВАЛ') + ' галерея использует системную рамку и заголовок: ' +
+    JSON.stringify(gallery && { title: gallery.getTitle(), bounds: gallery.getBounds(), content: gallery.getContentBounds() }));
+  console.log('  ' + (galleryTitleOk ? 'ОК  ' : 'ПРОВАЛ') + ' системный заголовок галереи локализован: ' + (gallery && gallery.getTitle()));
+  console.log('  ' + (galleryVideo && galleryVideo.actionsRight ? 'ОК  ' : 'ПРОВАЛ') + ' кнопка галереи стоит справа');
   const galleryPlayback = !!(galleryVideo && galleryVideo.found && galleryVideo.video &&
     galleryVideo.controls && /^http:\/\/127\.0\.0\.1:\d+\/f\//.test(galleryVideo.src));
   console.log('  ' + (galleryPlayback ? 'ОК  ' : 'ПРОВАЛ') + ' локальная запись сразу появилась в галерее с видеоплеером: ' + JSON.stringify(galleryVideo));
+  console.log('  ' + (galleryVideo && galleryVideo.dots === false ? 'ОК  ' : 'ПРОВАЛ') + ' в галерее нет декоративных точек');
 
   await new Promise((r) => server.close(r));
   await new Promise((r) => caddy.close(r));

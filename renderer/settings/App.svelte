@@ -18,9 +18,7 @@
     Badge,
     Button,
     Checkbox,
-    EmptyState,
     FileUpload,
-    Notice,
     PageHeader,
     SegmentedControl,
     SelectField,
@@ -30,6 +28,7 @@
   import { fieldValue } from './lib/dom.js';
   import { keyFromEvent, prettyCombo } from './lib/hotkey.js';
   import { LANGS, lang, setLang, t } from '../shared/i18n.js';
+  import appInfo from '../../package.json';
 
   const bridge = window.puuush;
   const isMac = bridge.platform === 'darwin';
@@ -68,9 +67,6 @@
   let recording = false;
   let recordingBusy = false;
 
-  /** История ссылок. */
-  let historyItems = [];
-
   /** Поля формы. Тексты двух комбинаций: сама комбинация или подсказка про запись. */
   let hotkeyTexts = { hotkey: '', imageHotkey: '', recordHotkey: '' };
   /** Поле, которое ждёт новую комбинацию, либо null. */
@@ -98,7 +94,6 @@
   /** Служебное. */
   let ownUrlInvalid = false;
   let verifying = false;
-  let historyError = '';
   /** Файл, взятый перетаскиванием или диалогом. */
   let picked = [];
 
@@ -107,6 +102,7 @@
   // -------------------------------------------------------------------------
 
   $: ownVisible = host === 'own' || host === 'auto';
+  $: if (typeof document !== 'undefined') document.title = $t('tray.settingsTitle');
   $: ownReady = Boolean(ownUrl.trim() && ownKey.trim());
   $: nextTarget = describeNextTarget(host, ownReady, hosts, $t);
   $: stateTag = describeStateTag(status.kind, $t);
@@ -692,7 +688,6 @@
         r.copied === false || downgraded ? 'bad' : 'ok',
         r.url
       );
-      await loadHistory();
       return r;
     } catch (e) {
       // Раньше здесь исключение пролетало мимо, и метка навсегда зависала
@@ -718,53 +713,6 @@
       if (!path) return fail($t('ui.status.noPath'));
       await runUpload($t('ui.status.uploadingFile'), () => bridge.uploadFile(path));
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // История
-  // -------------------------------------------------------------------------
-
-  /** Подпись строки истории: источник, время и срок жизни файла. */
-  function historyMeta(item) {
-    const when = new Date(item.at).toLocaleString($lang === 'ru' ? 'ru-RU' : 'en-GB', {
-      day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
-    });
-    const life = item.temp
-      ? $t('ui.history.temp')
-      : (item.expiresAt
-        ? $t('ui.history.until', { date: new Date(item.expiresAt).toLocaleDateString($lang === 'ru' ? 'ru-RU' : 'en-GB') })
-        : $t('ui.history.permanent'));
-    return `${item.source || hostLabel(item.host)} · ${when} · ${life}`;
-  }
-
-  function copyUrl(url) {
-    bridge.copyText(url);
-    setStatus($t('ui.status.copied'), 'ok');
-  }
-
-  async function loadHistory() {
-    let list = [];
-    try {
-      list = await bridge.getHistory();
-    } catch (e) {
-      historyItems = [];
-      historyError = $t('ui.history.unreadable');
-      return;
-    }
-    historyError = '';
-    historyItems = list.filter((item) => item.url);
-  }
-
-  async function clearHistory() {
-    // Удаление истории необратимо, а спрятано внизу окна.
-    if (!window.confirm($t('ui.history.confirmClear'))) return;
-    clearStatus();
-    try {
-      await bridge.clearHistory();
-    } catch (e) {
-      fail(e && e.message ? e.message : $t('ui.history.clearFailed'));
-    }
-    await loadHistory();
   }
 
   // -------------------------------------------------------------------------
@@ -848,7 +796,6 @@
       fail($t('ui.displaysFailed', { error: e && e.message ? e.message : e }));
     }
 
-    await loadHistory();
   })();
 </script>
 
@@ -858,17 +805,25 @@
 <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-bg">
   <div class="page min-h-0 flex-1 overflow-y-auto">
   <PageHeader
-    class="[&>div:first-child]:max-w-[30rem]"
+    class="[&>div:last-child]:ml-auto [&>div:last-child]:justify-end"
     title={$t('ui.settingsTitle')}
     description={$t('ui.description')}
-  />
+  >
+    <svelte:fragment slot="actions">
+      <span class="app-version" aria-label={$t('ui.version', { version: appInfo.version })}>
+        <Badge tone="neutral">v{appInfo.version}</Badge>
+      </span>
+      <Button variant="secondary" on:click={() => bridge.openGallery()}>
+        {$t('ui.gallery.open')}
+      </Button>
+    </svelte:fragment>
+  </PageHeader>
 
   {#if brokenReason}
-    <div class="mt-comfortable">
-      <Notice tone="danger" title={$t('ui.brokenTitle')}>
-        <p>{brokenReason}</p>
-        <p class="mt-1">{$t('ui.brokenBody')}</p>
-      </Notice>
+    <div class="mt-comfortable rounded-ui border border-line bg-surface p-3 text-sm text-ink" role="alert">
+      <p class="font-bold">{$t('ui.brokenTitle')}</p>
+      <p class="mt-1 text-xs leading-relaxed text-ink-soft">{brokenReason}</p>
+      <p class="mt-1 text-xs leading-relaxed text-ink-soft">{$t('ui.brokenBody')}</p>
     </div>
   {/if}
 
@@ -912,7 +867,7 @@
         on:change={onPhotoModeChange}
       />
       <div class="space-y-base">
-        <div>
+        <div class="settings-action flex justify-end">
           <Button variant="secondary" on:click={testHotkey}>
             {$t('ui.button.check')}
           </Button>
@@ -932,7 +887,7 @@
         on:blur={stopListening}
       />
 
-      <div>
+      <div class="settings-action flex justify-end">
         <Button variant="secondary" loading={recordingBusy} on:click={toggleRecording}>
           {recording ? $t('ui.button.stopRecord') : $t('ui.button.startRecord')}
         </Button>
@@ -1038,27 +993,24 @@
         </p>
       </div>
 
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="settings-action flex justify-end">
         <Button variant="secondary" loading={speedTesting} on:click={testHosts}>
           {$t('ui.speed.button')}
         </Button>
-        <span class="text-xs text-ink-soft">{$t('ui.speed.hint')}</span>
       </div>
+      <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.speed.hint')}</p>
 
       {#if speedResults.length}
         <ul class="space-y-1 text-xs">
           {#each speedResults as r (r.name)}
-            <li class="flex items-center gap-2 {r.ok ? 'text-ink-soft' : 'text-ink-faint'}">
-              <span
-                class="inline-block h-1.5 w-1.5 shrink-0 rounded-full {r.ok
-                  ? 'bg-success'
-                  : 'bg-danger'}"
-                aria-hidden="true"
-              ></span>
+            <li class="flex items-center gap-3 {r.ok ? 'text-ink-soft' : 'text-ink-faint'}">
               <span class="min-w-0 flex-1 truncate">{hostLabel(r.name)}</span>
               <span class="shrink-0 tabular-nums">
                 {r.ok ? speedText(r.ms) : $t('ui.speed.unreachable')}
               </span>
+              <Badge tone={r.ok ? 'success' : 'danger'}>
+                {$t(r.ok ? 'ui.speed.reachable' : 'ui.speed.unreachable')}
+              </Badge>
             </li>
           {/each}
         </ul>
@@ -1085,7 +1037,7 @@
           on:change={onOwnKeyChange}
         />
 
-        <div class="flex flex-wrap items-center gap-3">
+        <div class="settings-action flex flex-wrap items-center justify-end gap-3">
           <Button
             variant="secondary"
             aria-pressed={keyVisible}
@@ -1153,7 +1105,7 @@
         bind:value={saveDir}
         on:change={onSaveDirChange}
       />
-      <div>
+      <div class="settings-action flex justify-end">
         <Button variant="secondary" on:click={pickDir}>
           {$t('ui.button.choose')}
         </Button>
@@ -1168,7 +1120,7 @@
         bind:files={picked}
         on:change={onFilesPicked}
       />
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="settings-action flex flex-wrap items-center justify-end gap-3">
         <Button variant="secondary" on:click={uploadClipboard}>
           {$t('ui.button.fromClipboard')}
         </Button>
@@ -1177,7 +1129,11 @@
 
       {#if status.text || status.url}
         <div>
-          <Notice tone={status.kind === 'bad' ? 'danger' : status.kind === 'ok' ? 'success' : 'info'}>
+          <div
+            class="rounded-ui border border-line bg-surface p-3 text-xs leading-relaxed text-ink-soft"
+            role={status.kind === 'bad' ? 'alert' : 'status'}
+            aria-live={status.kind === 'bad' ? 'assertive' : 'polite'}
+          >
             {#if status.url}
               <p class="break-url text-ink">{status.url}</p>
             {/if}
@@ -1189,54 +1145,11 @@
                 {$t('ui.local.label')}: {localUrl}
               </p>
             {/if}
-          </Notice>
+          </div>
         </div>
       {/if}
     </SectionBlock>
 
-    <SectionBlock title={$t('ui.section.history')}>
-      <div class="flex justify-end">
-        <Button variant="secondary" on:click={() => bridge.openGallery()}>
-          {$t('ui.gallery.open')}
-        </Button>
-      </div>
-      {#if historyError}
-        <div class="rounded-ui border border-line">
-          <EmptyState title={historyError} />
-        </div>
-      {:else if historyItems.length}
-        <ul class="divide-y divide-line border-y border-line">
-          {#each historyItems as item (item.url + String(item.at))}
-            <li class="flex flex-wrap items-center gap-3 px-3 py-2.5">
-              <button
-                type="button"
-                class="break-url min-w-0 flex-1 text-left text-xs text-ink-soft transition-colors duration-fast hover:text-ink"
-                title={$t('ui.history.copyTitle')}
-                on:click={() => copyUrl(item.url)}
-              >
-                {item.url}
-              </button>
-              <span class="shrink-0 whitespace-nowrap text-xs text-ink-faint">
-                {historyMeta(item)}
-              </span>
-              <Button variant="text" size="sm" on:click={() => bridge.openExternal(item.url)}>
-                {$t('ui.button.open')}
-              </Button>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        <div class="rounded-ui border border-line">
-          <EmptyState
-            title={$t('ui.history.emptyTitle')}
-            description={$t('ui.history.emptyDescription')}
-          />
-        </div>
-      {/if}
-      <div class="flex justify-end">
-        <Button variant="danger" on:click={clearHistory}>{$t('ui.button.clearHistory')}</Button>
-      </div>
-    </SectionBlock>
   </main>
   </div>
 </div>

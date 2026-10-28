@@ -1,6 +1,5 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Иконка puuush в линейке monos: тот же тёплый квадрат, золотая рамка и
-       точка-статус. Знак — рамка выделения области и зелёная точка «ссылка готова». -->
+  <!-- Иконка puuush: рамка выделения области в тёплой палитре monos UI. -->
   <defs>
     <linearGradient id="bg" x1="184" y1="96" x2="840" y2="928" gradientUnits="userSpaceOnUse">
       <stop stop-color="#302b24"/>
@@ -22,6 +21,5 @@
     <path d="M594 318H706V430" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M706 594V706H594" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M430 706H318V594" stroke="#ebdbb2" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="512" cy="512" r="58" fill="#8ec07c"/>
   </g>
 </svg>
