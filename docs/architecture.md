@@ -22,14 +22,20 @@ repository.
 | `src/toast.js` | The corner popup shown when the link or the image reaches the clipboard. Takes no focus, passes the mouse through, closes itself. |
 | `src/hotkey.js` | Parsing of a hotkey string. Pure, tested without Electron. |
 | `src/capture.js` | The screen capture and the crop. It knows about display scaling and nothing else. |
+| `src/recorder.js` | The recording session: streams, area bounds, WebM/GIF file on the disk, pause and stop. |
+| `src/recording-chrome.js` | The red frame and the timer/pause/stop panel around the recording. |
+| `src/local-server.js` | The local share: the file is already on the disk, and this serves it while the app is open. |
 | `src/upload.js` | The upload targets, the fallback order and the file name rules. It knows nothing about Electron. |
 | `src/store.js` | The settings file, the history and what happens when the settings cannot be read. |
 | `src/i18n.js` | The language of the main process: it reads the dictionaries and hands out the words. |
 | `src/locales/` | The words of the interface, one file per language, for the main process and the windows alike. |
 | `renderer/overlay/` | The sources of the region picker window: the frame, the size label and the selection. |
+| `renderer/recorder/` | The recording page: streams, canvas, MediaRecorder and the GIF encoder. |
 | `renderer/settings/` | The sources of the settings window and its behaviour. |
 | `renderer/shared/` | What both windows share: the theme, the font and the page. |
 | `src/preload-overlay.js` | The preload of the region picker. |
+| `src/preload-recorder.js` | The preload of the recording page. |
+| `src/preload-chrome.js` | The preload of the recording frame and panel. |
 | `src/preload.js` | The preload of the settings window. |
 | `server/index.js` | The upload receiver. `node:http` and nothing else. |
 | `server/config.example.json` | The server configuration, with the values filled in. |
@@ -63,6 +69,47 @@ succeeds and the selection dies immediately, so the app would report a link
 that there is nothing to paste. When the read back fails, the link is
 shown in a dialog instead.
 
+The picker opens on every screen at once, and the frame is cut straight after
+the drag: the region is confirmed by releasing the mouse. The capture of all
+the screens is one `desktopCapturer` call, because the call costs hundreds of
+milliseconds and three of them made the hotkey feel slow.
+
+The recording path is separate, and it produces a file rather than a picture:
+
+```
+hotkey -> streams (screen + microphone + system sound) -> WebM on the disk
+       -> link, clipboard file, or disk path
+```
+
+The streams come from a hidden page: `MediaRecorder` and the loopback device
+of the audio output exist only in Chromium. The page hands the chunks to the
+main process, and the main process writes them to the file as they arrive:
+the recording of a meeting is hundreds of megabytes, and it must not sit in
+memory.
+
+`recordArea` is `screen`, `region` or `all`. A region is chosen with the same
+picker as a screenshot, and `recordScreen` is `cursor`, `all`, or one display
+id. The microphone and the loopback track are joined with Web Audio into one
+audio track; the page sends the source count back before recording is
+considered started, so a missing loopback cannot pass silently as
+microphone-only sound.
+
+GIF has no audio. The recording page captures the same canvas at the selected
+30 or 60 fps, quantises each frame and writes GIF89a through a small local
+encoder. The encoder keeps real frame delays instead of pretending that slow
+frames happened on schedule. Its width is capped at 1600 pixels for 30 fps and
+960 for 60 so the page can keep up with the selected rate.
+
+A file over 8 MiB leaves the machine as a stream rather than as one buffer,
+and the own server writes such a file straight to the disk. The threshold
+matters only for the memory: the whole path works the same way for a small
+screenshot.
+
+While the app is open it also registers uploaded files under a short
+`http://127.0.0.1:PORT/f/...` link. That link needs no remote host and lives
+until the app quits; it is a local fallback, not a replacement for the
+shareable cloud or own-server URL.
+
 The command line path skips the picker:
 
 ```
@@ -77,6 +124,11 @@ client -> POST /v1/uploads, key in the Authorization header
        -> 201 with the public url
 Caddy -> serves the files themselves
 ```
+
+The server raises Node's five-minute request timeout to two hours: a long
+recording on a home connection legitimately takes longer than five minutes,
+and the default would close the socket halfway through the body. The body
+itself still has the `max_video_bytes` limit and is streamed to disk.
 
 ## Decisions worth knowing about
 
@@ -103,11 +155,28 @@ the window they are picking in.
 is a hole punched around the selection. The selected area stays clear, with
 no fog over it and no second layer to repaint while the frame is dragged.
 
+### The settings window draws its own titlebar
+
+The settings BrowserWindow is created with `frame: false`. The page draws the
+brand, the window name and three controls in `renderer/settings/lib/TitleBar.svelte`;
+`.titlebar` is a `-webkit-app-region: drag` surface, and
+`.titlebar-controls` switches back to `no-drag` so the buttons keep their
+clicks. Double clicking empty titlebar space toggles maximize.
+
+The controls do not assume that `settingsWin` is the caller. Each IPC handler
+takes the window from `BrowserWindow.fromWebContents(event.sender)` and acts
+on it: that is what makes the same channels work in the settings window and
+in a test window without a modal error. `thickFrame` keeps the edges
+resizable, and `setMenu(null)` keeps the native Electron menu from appearing
+under the custom bar.
+
 ### The upload order is the fallback order
 
-The configured server is tried first, then catbox, then pomf2, then uguu. A
-candidate that answers with a broken link is not a candidate: every
-candidate is checked with a real request before its link is handed over.
+The configured server is tried first, then the cloud hosts in the order the
+speed test measured. Without a measurement the order is x0.at, uguu, pomf2,
+catbox, litterbox. A candidate that answers with a broken link is not a
+candidate: every candidate is checked with a real request before its link is
+handed over.
 The hosts that were checked and left out are written down in the comment at
 the top of `src/upload.js`: 0x0.st turned off uploads, and file.io answers
 with a redirect instead of a link.

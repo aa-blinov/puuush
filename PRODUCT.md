@@ -8,7 +8,8 @@ web
 
 The application is a desktop app (Electron 44) with a small upload server
 (Node, `node:http`) that the team can run on its own machine. The interface is
-a tray app and a region picker, both native windows.
+a tray app, a region picker and a settings window. The settings window uses
+Electron's native titlebar, native controls and the window title `puuush`.
 
 ## Users
 
@@ -23,8 +24,8 @@ it.
 
 ## Product Purpose
 
-The app does one thing: it turns a region of the screen into a link in the
-clipboard.
+The app does two things: it turns a region of the screen into a link in the
+clipboard, and it records the screen with sound into a link.
 
 The shortcut is the whole product. `Ctrl+Shift+S` (or `Cmd+Shift+S`) starts
 the capture, the frame is dragged, `Enter` confirms, and the clipboard holds
@@ -36,6 +37,54 @@ default. It uploads nothing: the picture itself goes to the clipboard, for the
 places that take an image rather than a link. The two shortcuts are set
 separately, and they must not be the same.
 
+There is a third shortcut, `Ctrl+Shift+R` (`Cmd+Shift+R`), and it records the
+screen instead of cutting it. The same key starts and stops the recording, so
+a meeting is recorded by pressing one key twice. A recording can take the
+whole display, a region chosen with the same frame as a screenshot, or every
+display in one frame. Video takes the microphone, and, where the system allows
+it, the system sound: on Windows the loopback device of the output is
+available, and on other systems only the microphone is. The two sources end up
+in one WebM file with one mixed audio track.
+
+The format setting also offers GIF. GIF is silent by design, runs at 30 or 60
+frames per second and keeps the animation readable by capping its width at
+1600 pixels for 30 and 960 for 60. It does not stretch a slow frame: the next
+frame gets the real elapsed delay, so the animation stays the same length as
+the recording.
+
+While the recording runs, a red frame sits around the recorded screen and a
+panel with the timer, the pause button and the stop button sits at the bottom
+of that screen. Neither is captured into the recording. The tray icon blinks
+red for as long as the recording lasts, and a left click on it opens the menu.
+The pause stops both the clock and the data, and the same recording continues
+after it.
+
+Screenshots and recordings have separate destination settings. A screenshot
+can upload and return a link, or go straight to the clipboard as an image. A
+recording can upload and return a link, go to the clipboard as a file, or stay
+on the disk with its path shown. While an upload runs, the tray shows the busy
+icon, so a long recording does not look like a frozen app.
+
+The microphone is taken without the browser audio processing (echo
+cancellation, noise suppression, automatic gain), because those flatten the
+voice and cut the quiet parts. A gain setting of 100, 150 or 200 percent
+covers the microphones that are simply quiet.
+By default the recording takes the screen the pointer is on, not every screen:
+a meeting is one window, and three monitors side by side make a frame that is
+expensive to encode and hard to read. The settings can pin one specific display,
+ask for a region, or record every screen into one frame when that is what is
+wanted.
+
+The region picker opens on every screen at once, and the frame is confirmed
+by releasing the mouse. The region that was dragged is captured immediately:
+there is no second Enter to press. Enter and the space bar stay for the
+keyboard.
+
+The gallery is opened on request from the tray or settings. It shows recent
+captures and recordings, previews saved images, and gives direct actions to
+copy an image or file, copy or open its link, reveal the source in the file
+manager, and save a copy elsewhere. It does not open by itself.
+
 Success for the user: the link is in the clipboard before they have thought
 about where to paste it. Success for the product: the file lands on the
 team's own server rather than on a public host, and the interface says which
@@ -44,8 +93,9 @@ one served the last link.
 ## Positioning
 
 A neighbouring screenshot tool takes a picture and asks you to save it. This
-one keeps no file, shows no window, and leaves the result where the next
-action happens, in the clipboard.
+one keeps the capture flow out of the way and puts a link or image in the
+clipboard. Local copies are optional, and the gallery makes saved results
+available again when they are needed.
 
 The second difference is the server. The public hosts are a fallback, not the
 default, and the setting that says "only my server" is honoured. A team that
@@ -63,8 +113,9 @@ hotkey, so the person using it is in another window, in another application,
 and usually mid-sentence in a chat. The app must not steal focus, and it must
 not open a window that covers what the person is doing.
 
-The region picker is the one window that does open, and it closes to the tray
-when it loses focus.
+The region picker is the window that opens unasked, and it closes to the tray
+when it loses focus. The settings window opens only when the person asks for
+it, uses the native Electron titlebar, and stays resizable.
 
 The server runs on the team's own machine, behind Caddy, and is updated by
 copying one file and restarting the systemd unit. The people who operate it
@@ -78,22 +129,69 @@ Confirmed by the code:
   image from the clipboard.
 - Two shortcuts for a region. One uploads and copies the link. The other
   copies the picture and uploads nothing.
+- A third shortcut records the screen with the microphone and, on Windows, the
+  system sound. One key starts and stops it.
+- The region picker opens on every screen at once, and the frame is cut
+  straight after the drag.
+- Files over 8 MiB are uploaded as a stream and never held in memory: the
+  recording of a meeting is hundreds of megabytes, and two copies of it in
+  RAM would be a problem on any ordinary machine.
+- The own server takes files over 8 MiB straight to disk, the same way.
+- The recording takes one screen by default: the screen under the pointer,
+  a region chosen before it starts, a specific display chosen in the settings,
+  or every display side by side. The video frame is scaled to at most 2560
+  pixels wide.
+- A recording can be a WebM with mixed audio or a silent GIF at 30 or 60
+  frames per second. GIF keeps its own frame delays, does not stretch a slow
+  encoder, and is capped at 1600 pixels wide for 30 fps and 960 for 60.
+- The microphone and the Windows system loopback are mixed into one audio
+  track, so a player does not silently choose only one of them.
+- Quitting the app while a recording is running stops it and saves the WebM
+  before the process exits.
+- The recording shows a frame around the recorded screen and a panel with the
+  timer, pause and stop. Both windows are excluded from the capture and take
+  no focus; the frame also lets the mouse through.
+- The settings window uses Electron's native titlebar, native controls and
+  window title `puuush`. The native menu is hidden.
+- A separate gallery window opens only when requested from the tray or
+  settings; it previews local images and acts on recent capture files and
+  upload links.
+- The tray icon blinks while a recording runs, shows work while an upload is
+  in progress, and a left click on it opens the menu.
+- Screenshots and recordings have separate destinations. A screenshot is a
+  link or an image in the clipboard. A recording is a link, a file in the
+  clipboard, or a file on the disk, without a link in the last two cases.
+- The microphone is taken with echo cancellation, noise suppression and
+  automatic gain all off, and can be amplified to 150 or 200 percent.
+- Two uploads at once are queued rather than refused: a screenshot taken while
+  the recording is uploading still gets its link.
 - A shortcut needs a modifier other than Shift: `Shift+A` would take capital
   A from every application. A shortcut that cannot be taken leaves the
   previous one saved and working.
 - "Start at login" (`launchAtLogin`, off by default) exists on macOS and
   Windows only; Electron cannot do it on Linux, so the checkbox is not shown.
-- The own server is tried first, then catbox, then pomf2, then uguu.
+- The own server is tried first, then the cloud hosts in the order that the
+  speed test measured on this machine, and the default order otherwise
+  (x0.at, uguu, pomf2, catbox, litterbox).
 - The hint in the picker sits below the top of the work area, so on macOS it
   stays off the menu bar.
 - A link is checked with a real request before it is copied to the clipboard.
+- A local link works while the app is open: the file is already on the disk,
+  and the link serves it from a small server next to the app.
 - The crop is taken from the original capture, so a Retina display keeps its
   resolution.
-- A file larger than 64 MiB is refused before it is sent.
+- A screenshot or an ordinary file larger than 64 MiB is refused before it
+  is sent. A screen recording has a four-gigabyte client ceiling and is sent
+  as a stream; the own server applies its configured video limit.
 - File names are transliterated to Latin, and a name that does not survive
   becomes a hash tail.
 - Links carry 96 bits of entropy, and the client marks its own uploads so
   the server can tell them apart.
+- Cloud hosts differ by region: the settings window has a speed test that
+  uploads a small file to every cloud host from this machine, shows the time,
+  and puts the working ones in that order for the auto mode.
+- Every cloud host has its own file limit, and a file that is too big is
+  skipped with the reason rather than sent to fail.
 - The key travels in the `Authorization` header.
 - The server has no dependencies and uses `node:http`.
 

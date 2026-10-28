@@ -5,7 +5,8 @@
   "write_key": "сгенерируй: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
   "public_base": "https://media.example.com",
   "max_bytes": 67108864,
-  "max_total_bytes": 2147483648,
+  "max_video_bytes": 4294967296,
+  "max_total_bytes": 21474836480,
   "keep_days": 30,
   "max_files": 5000,
   "edge_prefix": "172.40.0."

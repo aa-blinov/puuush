@@ -514,9 +514,11 @@ test('publish отказывает файл больше потолка и не 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-t-'));
   const file = path.join(dir, 'huge.bin');
   fs.writeFileSync(file, Buffer.alloc(1024));
+  // Размер показывается в килобайтах, когда он меньше мегабайта: иначе
+  // файл в байтах выглядел бы как «0 МБ» и отказ читался бы как ошибка.
   await assert.rejects(
     () => upload.publish(file, { host: 'auto', maxBytes: 512 }),
-    says('upload.tooBig', { size: 0, max: 0 })
+    (e) => /1 KB/.test(e.message) && /1 KB/.test(e.message)
   );
   fs.rmSync(dir, { recursive: true, force: true });
 });

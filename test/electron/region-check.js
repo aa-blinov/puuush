@@ -41,6 +41,8 @@ app.whenReady().then(async () => {
   app.setPath('userData', ud);
 
   const results = [];
+  // Сколько окон выбора открылось на экраны.
+  let pickerCount = 0;
   for (const key of ['Enter', 'Escape']) {
     const t0 = Date.now();
     const p = captureTo(ud).then(
@@ -139,8 +141,63 @@ app.whenReady().then(async () => {
       val: got ? `${got.width}x${got.height}` : 'ответа не было' });
   }
 
+  // Снимок делается сразу по отпусканию мыши: Enter нажимать не надо.
+  // Число окон выбора считается здесь, пока они живы.
+  // Прежде окно ждало Enter, и это читалось как «выделение не сработало».
+  const shotOnRelease = await new Promise((resolve) => {
+    const ud2 = fs.mkdtempSync(path.join(os.tmpdir(), 'qa3-'));
+    let done = false;
+    const p2 = captureTo(ud2).then(
+      (v) => { if (!done) { done = true; resolve(v); } },
+      () => { if (!done) { done = true; resolve(null); } }
+    );
+    setTimeout(async () => {
+      const ov = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('overlay.html'));
+      if (!ov) return;
+      // Сколько окон выбора открылось: по одному на экран.
+      pickerCount = BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes('overlay.html')).length;
+      const dl = Date.now() + 20000;
+      while (Date.now() < dl) {
+        const ok = await ov.webContents.executeJavaScript("!!document.querySelector('img.shot')", true).catch(() => false);
+        if (ok) break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      const wc = ov.webContents;
+      const mouse = (type, x, y) => wc.sendInputEvent({ type, x, y, button: 'left', clickCount: 1 });
+      mouse('mouseDown', 120, 90);
+      for (let i = 1; i <= 8; i++) {
+        mouse('mouseMove', 120 + i * 30, 90 + i * 20);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      mouse('mouseUp', 360, 250);
+      // Enter не нажимаем: снимок должен прийти сам.
+      const res = await Promise.race([p2, new Promise((r) => setTimeout(() => r('нет ответа'), 8000))]);
+      if (!done) { done = true; resolve(res === 'нет ответа' ? null : res); }
+    }, 2500);
+  });
+  results.push({
+    key: 'снимок сразу по отпусканию мыши',
+    ok: !!(shotOnRelease && shotOnRelease !== 'нет ответа'),
+    val: shotOnRelease && shotOnRelease !== 'нет ответа'
+      ? path.basename(shotOnRelease.path)
+      : 'ответа не было',
+  });
+
+  // Окно выбора открывается на каждом экране сразу: на двух мониторах
+  // выбрать было нечего, потому что окно открывалось только на том, где стоял
+  // курсор.
+  // Окна выбора живут только во время выбора: к этому моменту выбор уже
+  // закончен и они закрыты. Поэтому число окон считается во время выбора.
+  const screens = require('electron').screen.getAllDisplays().length;
+  const pickers = pickerCount;
+  results.push({
+    key: 'окно выбора на каждом экране',
+    ok: pickers === screens && screens > 0,
+    val: `${pickers} окон на ${screens} экранах`,
+  });
+
   for (const r of results) {
-    if (String(r.key).startsWith('тонкая рамка')) {
+    if (String(r.key).startsWith('тонкая рамка') || String(r.key).startsWith('снимок сразу') || String(r.key).startsWith('окно выбора')) {
       console.log(`  ${r.ok ? 'ОК  ' : 'ПРОВАЛ'} ${r.key}: ${r.val}`);
     }
   }

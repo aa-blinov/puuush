@@ -35,7 +35,13 @@ function loadConfig() {
     writeKey: String(raw.write_key || ''),
     publicBase: String(raw.public_base || '').replace(/\/+$/, ''),
     maxBytes: Number(raw.max_bytes || 64 * 1024 * 1024),
-    maxTotalBytes: Number(raw.max_total_bytes || 2 * 1024 * 1024 * 1024),
+    // Запись встречи весит сотни мегабайт, и общий потолок для картинок её
+    // не пускает. Отдельный потолок для видео: он больше, и в памяти файл
+    // всё равно не лежит — он пишется на диск по мере поступления.
+    maxVideoBytes: Number(raw.max_video_bytes || 4 * 1024 * 1024 * 1024),
+    // Два гигабайта — это две записи встречи. Для личного сервера, который
+    // хранит записи месяц, потолок по объёму должен быть заметно больше.
+    maxTotalBytes: Number(raw.max_total_bytes || 20 * 1024 * 1024 * 1024),
     keepDays: Number(raw.keep_days || 30),
     maxFiles: Number(raw.max_files || 5000),
     edgePrefix: String(raw.edge_prefix || EDGE_PREFIX),
@@ -393,6 +399,178 @@ function readBody(req, limit) {
   });
 }
 
+/**
+ * Потоковый разбор multipart: файл пишется на диск, а не держится в памяти.
+ *
+ * Запись встречи весит сотни мегабайт. Прежний разбор читал всё тело в
+ * память, и две копии файла (буфер и файл на диске) на сервере означали бы
+ * лишнюю память под каждой загрузкой. Здесь тело читается кусками, и на диск
+ * уходит только содержимое файловой части.
+ *
+ * Разбор границ сделан так же, как в parseMultipart: граница считается
+ * границей только в начале строки, и строка «--граница» внутри файла не
+ * обрывает файл.
+ */
+function parseMultipartToDisk(req, boundary, destPath, limitFor, initialLimit = Infinity) {
+  return new Promise((resolve, reject) => {
+    const delim = Buffer.from(`--${boundary}`);
+    const stream = fs.createWriteStream(destPath);
+    // Фазы разбора: head — читаем заголовок очередной части, file — пишем
+    // её содержимое, skip — часть без файла (обычное поле формы).
+    let phase = 'head';
+    let pending = Buffer.alloc(0);
+    let written = 0;
+    let done = false;
+    let filename = null;
+    let fileSeen = false;
+    // Потолок становится известен, когда разобран заголовок части: там имя
+    // файла. До этого момента пишем с самым просторным потолком, а проверяем
+    // по настоящему сразу после.
+    // Пока имя файла неизвестно, берём самый просторный потолок и проверяем
+    // по-настоящему сразу после разбора заголовка части.
+    let limit = typeof limitFor === 'function' ? initialLimit : (limitFor || Infinity);
+
+    const fail = (e) => {
+      if (done) return;
+      done = true;
+      stream.destroy();
+      try { fs.unlinkSync(destPath); } catch (e2) { /* файла могло не быть */ }
+      reject(e);
+    };
+    const tooLarge = () => Object.assign(
+      new Error('файл больше лимита'),
+      { code: 413, tooLarge: true, limit }
+    );
+
+    // Запись в файл.
+    //
+    // stream.write возвращает false, когда внутренний буфер переполнен: это не
+    // ошибка, а сигнал «подожди». Прежде здесь это значение трактовалось как
+    // отказ, и разбор прекращался: большой файл (запись встречи) писался
+    // кусками по 64 килобайта, и второй-третий кусок уже давал false, после
+    // чего граница больше не искалась и запрос висел до бесконечности.
+    //
+    // Теперь при переполнении запрос просто приостанавливается, и данные
+    // продолжают приходить после освобождения места.
+    const write = (buf) => {
+      if (!buf.length) return true;
+      written += buf.length;
+      if (written > limit) {
+        fail(tooLarge());
+        return false;
+      }
+      if (!stream.write(buf)) {
+        req.pause();
+        stream.once('drain', () => {
+          if (!done) req.resume();
+        });
+      }
+      return true;
+    };
+
+    const finishOk = () => {
+      if (done) return;
+      done = true;
+      // Файл закрывается до ответа: пока он не дописан, читатель по ссылке
+      // получил бы обрезанный файл.
+      stream.end(() => resolve({ filename, size: written, seen: fileSeen }));
+    };
+
+    // Ищет границу только в начале строки: внутри файла такая строка
+    // встречается вполне возможно, и наивный поиск обрезал бы файл по ней.
+    const findBoundary = (buf, from) => {
+      const atLineStart = (pos) => pos === 0 || (buf[pos - 2] === 0x0d && buf[pos - 1] === 0x0a);
+      for (let pos = buf.indexOf(delim, from); pos !== -1; pos = buf.indexOf(delim, pos + 1)) {
+        if (!atLineStart(pos)) continue;
+        const after = buf[pos + delim.length];
+        if (after === 0x0d || after === 0x0a || pos + delim.length >= buf.length) return pos;
+        if (after === 0x2d && buf[pos + delim.length + 1] === 0x2d) {
+          const end2 = buf[pos + delim.length + 2];
+          if (end2 === 0x0d || end2 === 0x0a || pos + delim.length + 2 >= buf.length) return pos;
+        }
+      }
+      return -1;
+    };
+
+    req.on('data', (chunk) => {
+      if (done) return;
+      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+      for (;;) {
+        if (done) return;
+        if (phase === 'head') {
+          const headerEnd = pending.indexOf('\r\n\r\n');
+          if (headerEnd === -1) {
+            // Заголовок части ещё не весь: ждём следующий кусок. Потолок на
+            // размер заголовка есть, иначе клиент мог бы залить память
+            // одним заголовком.
+            if (pending.length > 64 * 1024) return fail(tooLarge());
+            return;
+          }
+          const header = pending.slice(0, headerEnd).toString('utf8');
+          const fileMatch = /filename="([^"]*)"/i.exec(header);
+          const isFile = !!fileMatch;
+          if (isFile && !fileSeen) {
+            filename = fileMatch[1];
+            fileSeen = true;
+            // Потолок по настоящему имени: видео записывается дольше и
+            // весит больше, чем снимок.
+            limit = typeof limitFor === 'function' ? limitFor(filename) : limit;
+            phase = 'file';
+          } else {
+            phase = 'skip';
+          }
+          pending = pending.slice(headerEnd + 4);
+          continue;
+        }
+        // Содержимое части: ищем границу, но держим хвост, который может быть
+        // началом границы и должен попасть в следующий кусок.
+        const at = findBoundary(pending, 0);
+        if (at === -1) {
+          // Границы в этом куске нет: оставляем последние delim.length+4 байт
+          // в буфере, они могут оказаться её началом.
+          const keep = Math.min(pending.length, delim.length + 4);
+          const out = pending.slice(0, pending.length - keep);
+          pending = pending.slice(pending.length - keep);
+          if (phase === 'file' && !write(out)) return;
+          return;
+        }
+        let bodyEnd = at;
+        // Два байта \r\n перед границей принадлежат разделителю, не файлу.
+        if (bodyEnd >= 2 && pending[bodyEnd - 2] === 0x0d && pending[bodyEnd - 1] === 0x0a) bodyEnd -= 2;
+        if (phase === 'file' && !write(pending.slice(0, bodyEnd))) return;
+        pending = pending.slice(at + delim.length);
+        // Закрывающая граница («--граница--») означает конец тела.
+        if (pending.length >= 2 && pending[0] === 0x2d && pending[1] === 0x2d) {
+          phase = 'done';
+          break;
+        }
+        phase = 'head';
+        continue;
+      }
+      if (phase === 'done') {
+        // Дальше тело читать не нужно: файл уже на диске. Но соединение
+        // надо дочитать, иначе клиент получит сброс вместо ответа.
+        req.resume();
+        finishOk();
+      }
+    });
+
+    req.on('end', () => {
+      // Тело кончилось, а граница не нашлась: значит, последние байты в буфере
+      // принадлежат файлу, и их надо записать. Без этого файл остался бы
+      // обрезанным, а промис повис бы навсегда.
+      if (done) return;
+      if (phase === 'file') {
+        if (!write(pending)) return;
+        pending = Buffer.alloc(0);
+      }
+      finishOk();
+    });
+    req.on('error', (e) => fail(e));
+    req.on('aborted', () => fail(new Error('соединение оборвано')));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Ограничение частоты
 // ---------------------------------------------------------------------------
@@ -456,8 +634,112 @@ function clientIp(req, edgePrefix = EDGE_PREFIX) {
   return remote;
 }
 
+/**
+ * Порог, выше которого файл принимается потоком.
+ *
+ * Ниже порога разбор простой и целиком в памяти: скриншот занимает там
+ * копейки. Выше порога файл пишется на диск по мере поступления, и две копии
+ * в памяти не появляются: запись встречи весит сотни мегабайт, и держать
+ * столько на сервере в буфере означало бы уронить всю машину.
+ */
+const STREAM_THRESHOLD = 8 * 1024 * 1024;
+
+/**
+ * Потолок для файла по его расширению.
+ *
+ * Имя файла лежит в заголовке multipart-части, и заголовок приходит раньше
+ * тела: потолок известен до того, как файл начали писать. Видео получает
+ * отдельный, больший потолок, всё остальное — общий.
+ */
+function limitFor(cfg, filename) {
+  const name = String(filename || '').toLowerCase();
+  if (/\.(webm|mp4|mkv|mov|m4v|avi)$/.test(name)) return cfg.maxVideoBytes;
+  return cfg.maxBytes;
+}
+
+/**
+ * Приём файла на диск потоком.
+ *
+ * Сначала файл кладётся во временный файл рядом с целевым, потом
+ * переименовывается: переименование атомарно, и читатель по ссылке никогда
+ * не увидит наполовину записанный файл.
+ */
+async function writeUploadStreamed(cfg, req, filename, mime, boundary) {
+  const id = newId();
+  const dir = idDir(cfg.dir, id);
+  await fsp.mkdir(dir, { recursive: true });
+  // Имя временного файла не важно: настоящее имя приходит из разбора части,
+  // а по нему уже вычисляется и имя на диске.
+  const tmp = path.join(dir, '.upload.part');
+  try {
+    const { size, filename: parsedName } = await parseMultipartToDisk(
+      req, boundary, tmp, (name) => limitFor(cfg, name), cfg.maxVideoBytes
+    );
+    if (!size) {
+      await fsp.rm(dir, { recursive: true, force: true });
+      return null;
+    }
+    const name = safeName(parsedName || filename || 'file.bin');
+    const final = path.join(dir, name);
+    // Переименование до подсчёта хеша: хеш считается уже по имени файла,
+    // которое получит ссылка, а не по временному имени.
+    await fsp.rename(tmp, final);
+    const meta = {
+      id,
+      name,
+      size,
+      mime: mime || mimeFor(name),
+      sha256: await hashFile(final),
+      created: new Date().toISOString(),
+      url: `${cfg.publicBase}/f/${id}/${encodeURIComponent(name)}`,
+      expires_at: new Date(Date.now() + cfg.keepDays * 86400e3).toISOString(),
+    };
+    const metaTmp = path.join(dir, '.meta.json.part');
+    await fsp.writeFile(metaTmp, JSON.stringify(meta, null, 2));
+    await fsp.rename(metaTmp, path.join(dir, 'meta.json'));
+    return meta;
+  } catch (e) {
+    await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+    throw e;
+  }
+}
+
+/** Хеш файла на диске: большой файл целиком в память не влезает. */
+async function hashFile(filePath) {
+  const hash = crypto.createHash('sha256');
+  const stream = fs.createReadStream(filePath);
+  for await (const chunk of stream) hash.update(chunk);
+  return hash.digest('hex');
+}
+
 async function handleUpload(req, res, cfg) {
   const ct = req.headers['content-type'] || '';
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct);
+
+  // Большой multipart идёт потоком: файл ложится на диск по мере поступления.
+  if (/multipart\/form-data/i.test(ct) && m) {
+    const declared = Number(req.headers['content-length'] || 0);
+    if (declared > STREAM_THRESHOLD) {
+      try {
+        const meta = await writeUploadStreamed(cfg, req, null, null, (m[1] || m[2]).trim());
+        if (!meta) return json(res, 400, { error: 'файл пустой' });
+        return json(res, 201, meta);
+      } catch (e) {
+        // Потоковый разбор знает настоящий потолок из имени файла. Общий
+        // обработчик ниже всегда называл бы 64 МБ, даже когда упёрлась
+        // четырёхгигабайтная запись.
+        if (e.tooLarge) {
+          const limit = Number(e.limit) || cfg.maxBytes;
+          return json(res, 413, {
+            error: `файл больше лимита ${limit} байт`,
+            max_bytes: limit,
+          });
+        }
+        throw e;
+      }
+    }
+  }
+
   const body = await readBody(req, cfg.maxBytes + 64 * 1024);
   if (!body.length) return json(res, 400, { error: 'пустое тело запроса' });
 
@@ -465,7 +747,6 @@ async function handleUpload(req, res, cfg) {
   let filename;
   let mime;
 
-  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct);
   if (/multipart\/form-data/i.test(ct) && m) {
     const parts = parseMultipart(body, (m[1] || m[2]).trim());
     const file = parts.find((p) => p.filename !== null || p.name === 'file') ||
@@ -491,7 +772,7 @@ async function handleUpload(req, res, cfg) {
 
 function createServer(cfg) {
   const limit = makeLimiter({ windowMs: 60_000, max: 30 });
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     // Обёртка сделана намеренно. Раньше async-обработчик стоял напрямую, и
     // любое исключение внутри него, включая URIError от битого процентного
     // кодирования в пути, убивало процесс целиком: запрос `GET /%E0%A4%A`
@@ -506,6 +787,12 @@ function createServer(cfg) {
       }
     });
   });
+  // Node по умолчанию рвёт запрос через пять минут. Часовая запись на
+  // домашнем канале идёт дольше, и сервер обрывал бы её на середине, хотя
+  // клиент и потолок файла рассчитаны на два часа. Заголовки при этом
+  // по-прежнему должны прийти за минуту, поэтому headersTimeout не трогаем.
+  server.requestTimeout = 2 * 60 * 60 * 1000;
+  return server;
 }
 
 async function handleRequest(req, res, cfg, limit) {

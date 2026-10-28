@@ -339,6 +339,19 @@ test('уборщик всё же сносит лишнее, когда свеж�
 // Сервер: границы ответа
 // ---------------------------------------------------------------------------
 
+test('сервер не рвёт длинную загрузку через пять минут', () => {
+  // Node ставит requestTimeout в 5 минут по умолчанию. Часовая запись на
+  // домашнем канале идёт дольше, и сервер закрывал бы соединение посреди
+  // тела, хотя клиент и max_video_bytes рассчитаны на два часа.
+  const srv = server.createServer({
+    dir: os.tmpdir(), writeKey: 'k'.repeat(64), publicBase: 'https://x.test',
+    maxBytes: 1e6, maxVideoBytes: 4e9, maxTotalBytes: 1e12,
+    maxFiles: 10, keepDays: 30, edgePrefix: '172.40.0.', host: '127.0.0.1', port: 0,
+  });
+  assert.ok(srv.requestTimeout >= 2 * 60 * 60 * 1000, 'загрузка встречи должна укладываться в два часа');
+  srv.close();
+});
+
 test('сервер отвечает на ping только по своему протоколу', async () => {
   // Проверка сервера в окне настроек принимала любой HTTP 200, включая
   // HTML-заглушку обратного прокси, и показывала зелёным.
@@ -529,7 +542,9 @@ async function captureBody(file, opts) {
 
 test('имя файла в multipart проходит safeName: кавычка и CRLF не ломают тело', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-name-'));
-  const file = path.join(dir, 'a"b\r\nc.png');
+  // Имя с кавычкой и переводом строки недопустимо в файловой системе Windows:
+  // такой файл там просто не создаётся, и проверка падала бы не из-за кода.
+  const file = path.join(dir, process.platform === 'win32' ? 'ab c.png' : 'a"b\r\nc.png');
   fs.writeFileSync(file, Buffer.alloc(16, 0x41));
   try {
     const body = await captureBody(file, { host: 'own', own: { base_url: 'https://x.test', write_key: 'k'.repeat(20) } });
@@ -663,5 +678,253 @@ test('сервер превращает исполняемые типы в .txt 
     if (prev === undefined) delete process.env.PUUUSH_CONFIG;
     else process.env.PUUUSH_CONFIG = prev;
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// Запись видео, потоковая загрузка, приём больших файлов
+// ---------------------------------------------------------------------------
+
+test('файл больше порога уходит потоком, а не целиком в память', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-stream-'));
+  const file = path.join(dir, 'record.webm');
+  // Файл больше порога потоковой отправки: тело должно уйти кусками с диска.
+  const big = Buffer.alloc(9 * 1024 * 1024, 0x42);
+  fs.writeFileSync(file, big);
+
+  let seen = null;
+  const prev = upload.__setRequestStreamForTests(async (url, o) => {
+    seen = o;
+    return { status: 201, headers: {}, body: Buffer.from('{"url":"https://x.test/f"}') };
+  });
+  try {
+    await upload.uploadTo({ name: 'h', url: 'https://h.test/u', fields: {}, fileField: 'f' }, file)
+      .catch(() => {});
+    assert.ok(seen, 'большой файл пошёл потоковым запросом');
+    assert.ok(seen.head.length > 0, 'голова multipart приложена отдельно');
+    assert.ok(seen.tail.length > 0, 'хвост multipart приложен отдельно');
+    assert.strictEqual(seen.filePath, file, 'файл передан путём, а не содержимым');
+  } finally {
+    upload.__restoreRequestStreamForTests(prev);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('маленький файл по-прежнему уходит одним куском', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-small-'));
+  const file = path.join(dir, 'shot.png');
+  fs.writeFileSync(file, Buffer.alloc(1024, 0x41));
+  let streamCalled = false;
+  const prevStream = upload.__setRequestStreamForTests(async () => {
+    streamCalled = true;
+    return { status: 201, headers: {}, body: Buffer.from('{}') };
+  });
+  const prev = upload.__setRequestForTests(async (url, o) => {
+    assert.ok(o.body, 'тело собрано в памяти');
+    assert.ok(o.headers['Content-Length'] > 0);
+    return { status: 200, headers: {}, body: Buffer.from('https://h.test/x') };
+  });
+  try {
+    const url = await upload.uploadTo({ name: 'h', url: 'https://h.test/u', fields: {}, fileField: 'f' }, file);
+    assert.strictEqual(url, 'https://h.test/x');
+    assert.ok(!streamCalled, 'маленький файл не пошёл потоком');
+  } finally {
+    upload.__restoreRequestForTests(prev);
+    upload.__restoreRequestStreamForTests(prevStream);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('разметка экранов складывает мониторы в один холст', async () => {
+  const rec = require('../src/recorder.js');
+  const layout = rec.layoutFor([
+    { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 },
+    { id: 2, bounds: { x: 1920, y: -200, width: 2560, height: 1440 }, scaleFactor: 1 },
+  ]);
+  assert.strictEqual(layout.canvas.width, 4480);
+  // Верх холста — это верх самого верхнего экрана: второй монитор выше
+  // первого, и его верх отрицателен относительно первого, но на холсте он
+  // лежит в нуле.
+  assert.strictEqual(layout.canvas.height, 1440);
+  assert.strictEqual(layout.displays[1].top, 0);
+  // Первый монитор ниже: он сдвинут вниз на разницу высот.
+  assert.strictEqual(layout.displays[0].top, 200);
+});
+
+test('сервер принимает большой файл потоком и кладёт его на диск целиком', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-big-'));
+  const serverDir = path.join(dir, 'media');
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({
+    host: '127.0.0.1', port: 0, dir: serverDir,
+    write_key: 'c'.repeat(64), public_base: 'https://example.test',
+    max_bytes: 64 * 1024 * 1024, max_total_bytes: 100 * 1024 * 1024,
+    max_files: 100, keep_days: 30,
+  }));
+  const prevConfig = process.env.PUUUSH_CONFIG;
+  process.env.PUUUSH_CONFIG = configPath;
+  const mod = require('../server/index.js');
+  const server = mod.createServer(mod.loadConfig());
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const payload = Buffer.alloc(9 * 1024 * 1024);
+    for (let i = 0; i < payload.length; i += 4096) payload[i] = i & 0xff;
+    const boundary = '----puuushTest';
+    const head = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="record.webm"\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\n`
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const body = Buffer.concat([head, payload, tail]);
+
+    const res = await fetch(`${base}/v1/uploads`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${'c'.repeat(64)}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+      },
+      body,
+    });
+    assert.strictEqual(res.status, 201);
+    const meta = await res.json();
+    assert.strictEqual(meta.size, payload.length);
+    const onDisk = fs.readFileSync(path.join(serverDir, meta.id, meta.name));
+    assert.ok(onDisk.equals(payload), 'файл на диске совпадает с отправленным');
+  } finally {
+    await new Promise((res) => server.close(res));
+    if (prevConfig === undefined) delete process.env.PUUUSH_CONFIG;
+    else process.env.PUUUSH_CONFIG = prevConfig;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('три хоткея не могут совпасть: запись не займёт чужую комбинацию', async () => {
+  const store = require('../src/store.js');
+  const before = store.getSettings();
+  assert.ok(before.recordHotkey, 'у записи есть свой хоткей по умолчанию');
+  assert.notStrictEqual(before.recordHotkey, before.hotkey);
+  assert.notStrictEqual(before.recordHotkey, before.imageHotkey);
+  // Попытка сделать запись такой же, как снимок, отвергается.
+  assert.throws(() => store.setSettings({ recordHotkey: before.hotkey }), /hotkeys/);
+  assert.throws(() => store.setSettings({ hotkey: before.recordHotkey }), /hotkeys/);
+  // На диске осталась прежняя комбинация: отказ ничего не портит.
+  assert.strictEqual(store.getSettings().hotkey, before.hotkey);
+});
+
+
+test('последний кусок записи не отбрасывается после команды стоп', async () => {
+  const { Recorder } = require('../src/recorder.js');
+  const chunks = [];
+  const out = {
+    destroyed: false,
+    writableEnded: false,
+    write(buf, cb) { chunks.push(Buffer.from(buf)); setImmediate(cb); return true; },
+  };
+  const fake = { state: 'stopping', out, flush: Promise.resolve(), written: 0 };
+  const accepted = await Recorder.prototype.writeChunk.call(fake, Uint8Array.from([1, 2, 3]));
+  assert.strictEqual(accepted, true, 'кусок после stop() должен приниматься');
+  assert.deepStrictEqual(chunks, [Buffer.from([1, 2, 3])]);
+  assert.strictEqual(fake.written, 3);
+});
+
+test('локальная ссылка отдаёт файл, пока приложение открыто', async () => {
+  const { LocalServer } = require('../src/local-server.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-local-'));
+  const file = path.join(dir, 'shot.png');
+  fs.writeFileSync(file, Buffer.from('привет, файл'));
+  const srv = new LocalServer({ dir });
+  try {
+    await srv.listen();
+    const link = srv.add(file);
+    assert.ok(link && link.url.startsWith('http://127.0.0.1:'), 'локальная ссылка есть');
+    const res = await fetch(link.url);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(await res.text(), 'привет, файл');
+    // Имя файла в заголовке: без него браузер сохранил бы файл как «download».
+    assert.match(String(res.headers.get('content-disposition') || ''), /filename\*=UTF-8''/);
+    // Range нужен записи встречи, иначе браузер не даёт перемотать видео.
+    const partial = await fetch(link.url, { headers: { Range: 'bytes=0-5' } });
+    assert.strictEqual(partial.status, 206, 'локальная ссылка отвечает на Range');
+    assert.strictEqual(await partial.text(), 'при');
+    assert.strictEqual(partial.headers.get('content-range'), 'bytes 0-5/22');
+    // Файл убрали из папки — ссылка честно говорит, что его больше нет.
+    fs.unlinkSync(file);
+    const gone = await fetch(link.url);
+    assert.strictEqual(gone.status, 410);
+  } finally {
+    await srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('порядок облачных хостингов берётся из замера, незнакомые имена отбрасываются', async () => {
+  const order = ['uguu', 'nope', 'x0', 'uguu'];
+  const list = upload.orderedHosts(order);
+  assert.strictEqual(list[0].name, 'uguu', 'первым идёт самый быстрый');
+  assert.strictEqual(list[1].name, 'x0', 'второй по замеру');
+  assert.strictEqual(new Set(list.map((h) => h.name)).size, list.length, 'без повторов');
+  assert.ok(!list.some((h) => h.name === 'nope'), 'незнакомое имя отброшено');
+  assert.strictEqual(list.length, upload.HOSTS.length, 'все хостинги на месте');
+  // Без замера порядок по умолчанию.
+  assert.deepStrictEqual(
+    upload.orderedHosts([]).map((h) => h.name),
+    upload.HOSTS.map((h) => h.name)
+  );
+});
+
+test('файл больше потолка хостинга не отправляется вслепую', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-limit-'));
+  const file = path.join(dir, 'big.webm');
+  fs.writeFileSync(file, Buffer.alloc(4096, 0x41));
+  const prevHosts = upload.__setHostsForTests([
+    { name: 'tiny', url: 'https://tiny.test/u', fields: {}, fileField: 'f', temp: true, max: 1024 },
+  ]);
+  const prev = upload.__setRequestForTests(async () => {
+    throw new Error('запрос не должен был уйти');
+  });
+  try {
+    await assert.rejects(
+      upload.publish(file, { host: 'tiny' }),
+      (e) => /4/.test(e.message) && /1/.test(e.message) && /KB|MB|КБ|МБ/.test(e.message)
+    );
+  } finally {
+    upload.__restoreRequestForTests(prev);
+    upload.__restoreHostsForTests(prevHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('выбор экрана записи сохраняется, старый boolean мигрирует', () => {
+  withStore((load, dir) => {
+    let store = load();
+    assert.strictEqual(store.getSettings().recordScreen, 'cursor', 'по умолчанию — экран под курсором');
+    store.setSettings({ recordScreen: '12345', recordAllScreens: false });
+    store = load();
+    assert.strictEqual(store.getSettings().recordScreen, '12345', 'id экрана читается обратно');
+
+    // Настройки предыдущей версии не должны потерять режим «все экраны».
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ recordAllScreens: true }));
+    store = load();
+    assert.strictEqual(store.getSettings().recordScreen, 'all', 'старый recordAllScreens превращается в all');
+  });
+});
+
+test('порядок хостингов сохраняется и переживает перезапуск', async () => {
+  const store = require('../src/store.js');
+  const before = store.getSettings().hostOrder;
+  try {
+    const saved = store.setSettings({ hostOrder: ['uguu', 'x0'] });
+    assert.deepStrictEqual(saved.hostOrder, ['uguu', 'x0']);
+    assert.deepStrictEqual(store.getSettings().hostOrder, ['uguu', 'x0'], 'порядок читается обратно');
+    // Мусор в массиве не проходит: иначе порядок сломается на первом чтении.
+    assert.throws(() => store.setSettings({ hostOrder: ['uguu', 5] }), /hostOrder/);
+  } finally {
+    store.setSettings({ hostOrder: before });
   }
 });

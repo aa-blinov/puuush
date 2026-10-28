@@ -1,8 +1,10 @@
 # puuush
 
 Screenshot a region of the screen, upload it, and get the link in your
-clipboard. Press the hotkey, drag a frame, press Enter, and the link is
+clipboard. Press the hotkey, drag a frame, release the mouse, and the link is
 already in the clipboard, ready to paste into a chat.
+
+It also records the screen with sound, for the meetings you have to be in.
 
 The site with the pictures and the download table:
 [aa-blinov.github.io/puuush](https://aa-blinov.github.io/puuush/).
@@ -63,20 +65,53 @@ the build produced.
 
 - **Screenshot a region.** The frame is cut from the original screen capture
   rather than from the picture on screen, so a Retina display keeps its full
-  resolution in the uploaded file.
+  resolution in the uploaded file. The settings choose whether the shot becomes
+  a link or goes straight to the clipboard as an image.
 - **Put the link in the clipboard.** The upload is checked with a real
   request before the link is copied, so a clipboard entry always resolves.
 - **Bring your own server.** With a server configured the file lands on your
-  own domain. Without one it goes to a public host, and the interface says
-  which of the two served the last link.
+  own domain. Without one it goes to a cloud host, and the interface says
+  which one served the last link. Several cloud hosts are built in, and the
+  speed test picks the quickest from where you are.
 - **Refuse a file that is too large.** Anything over 64 MiB is rejected before
-  it leaves the machine.
+  it leaves the machine. A screen recording is allowed up to four gigabytes,
+  and it is sent as a stream: the file never sits in memory in one piece.
+- **Pick on any screen.** The picker opens on every display at once, so you
+  drag the frame on the monitor you are looking at, and the crop is taken
+  from that screen.
+- **Record the meeting.** One key starts and stops the recording. It can take
+  the screen under the pointer, a region selected before the start, a specific
+  monitor, or every monitor in one frame. Video takes the microphone and, on
+  Windows, the system sound, and mixes both into one WebM audio track. The
+  settings also offer a silent GIF at 30 or 60 fps. GIF width is capped at 1600
+  pixels for 30 fps and 960 for 60 so the encoder keeps up instead of turning
+  the animation into a slideshow. Quitting during a recording stops it and
+  saves the file before the app exits.
+- **See what is happening.** While a recording runs, a red frame marks the
+  recorded screen and a panel at the bottom holds the timer, pause and stop;
+  neither shows up in the video. The tray icon blinks red during recording and
+  shows a busy state during upload.
+- **Find a result later.** The gallery previews saved screenshots and lists
+  recordings and uploaded files. Copy a file or link, open it, show it in its
+  folder, or save a copy elsewhere.
+- **Use native window controls.** Settings and the gallery use the native
+  Electron titlebar and app icon. The app menu stays in the tray.
+- **Choose where the result goes.** Screenshots can become a link or an image
+  in the clipboard. Recordings can become a link, a file in the clipboard, or
+  a file on the disk. A quiet microphone can be raised to 150 or 200 percent.
 
 ## Screenshots
 
-| The region picker | The settings window |
+| The region picker | The settings window with its Electron titlebar |
 | :---: | :---: |
 | ![The region picker](docs/ui-overlay.png) | ![The settings window](docs/ui-settings.png) |
+
+The recording section of the settings window:
+
+![The recording settings](docs/ui-recording.png)
+
+Open **File gallery** from the tray or the History section in Settings to
+preview recent captures and work with their files and links.
 
 The settings window also has a broken-state screenshot, taken from a
 configuration file that could not be read:
@@ -95,14 +130,30 @@ command line as well as the windows.
 hotkey -> screen capture -> region crop -> upload -> link -> clipboard
 ```
 
-The capture uses Electron's `desktopCapturer` and `display.scaleFactor` to
-work out the real size of the frame, so the crop is in device pixels rather
-than in the scaled coordinates the pointer reports.
+```
+hotkey -> record (screen + microphone + system sound) -> upload -> link
+```
+
+The capture uses Electron's `desktopCapturer` and measures the bitmap that
+actually arrived, so the crop is in device pixels rather than in the scaled
+coordinates the pointer reports.
 
 The upload tries the configured server first. When there is no server, or the
-server refuses the file, it falls back to catbox, then pomf2, then uguu, in
-that order. Every candidate is tried with the same file, and the first one
-that answers with a working link wins.
+server refuses the file, it falls back to the cloud hosts: x0.at, uguu,
+pomf2, catbox, then litterbox. In the settings there is a speed test that uploads a
+small file to each cloud host from this computer and puts the working ones in
+the measured order — latency differs a lot between regions, and the fastest
+host in one country is often slow in another.
+
+A file over 8 MiB is uploaded as a stream rather than being built in memory,
+and the own server writes such a file straight to the disk. The recording of a
+meeting is hundreds of megabytes, and holding it in RAM twice would be a
+problem on any ordinary machine.
+
+While the app is open it also serves uploaded files from a short local link;
+that link works without the remote host and lives until the app quits. Every
+upload candidate is tried with the same file, and the first one that answers
+with a working link wins.
 
 The link identifier is 96 bits of entropy, so a link cannot be guessed. The
 client marks its own uploads with a random prefix, which is how the server
@@ -110,8 +161,8 @@ tells its own files from a file somebody else posted.
 
 ## Configuration
 
-The settings window holds the two hotkeys (the link, and the picture alone),
-the upload target, and the behaviour
+The settings window holds the three hotkeys (link, picture alone, and screen
+recording), the upload target, and the behaviour
 around the tray (including start at login on macOS and Windows). The window is a separate window, and it closes to the tray
 by default.
 
@@ -157,9 +208,10 @@ npm run release:notes 1.1.0   # the release notes of a version
 `src/upload.js` and `server/index.js`, and that is what CI runs.
 
 `npm run test:electron` opens the real windows: the region picker has to
-confirm a frame with Enter, cancel with Esc, and must not publish the whole
-screen for a thin drag; the settings window has to write what the person
-chose to disk.
+confirm a frame, cancel with Esc, and must not publish the whole screen for a
+thin drag; the settings window has to write what the person chose to disk; the
+recording has to produce a real WebM with a sound track, and that file has to
+reach the server and come back by its own link.
 
 The interface is built on the [monos-ui](https://github.com/aa-blinov/monos-ui)
 kit: Svelte 4, a Tailwind preset and a layer of tokens. The kit is not on npm

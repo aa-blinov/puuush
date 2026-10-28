@@ -26,8 +26,13 @@ contextBridge.exposeInMainWorld('puuush', {
   brokenSettings: () => ipcRenderer.invoke('puuush:broken-settings'),
   saveSettings: (patch) => ipcRenderer.invoke('puuush:save-settings', patch),
   getHistory: () => ipcRenderer.invoke('puuush:get-history'),
+  getGallery: () => ipcRenderer.invoke('puuush:get-gallery'),
+  galleryAction: (id, action) => ipcRenderer.invoke('puuush:gallery-action', id, action),
+  openGallery: () => ipcRenderer.invoke('puuush:show-gallery'),
   clearHistory: () => ipcRenderer.invoke('puuush:clear-history'),
   hosts: () => ipcRenderer.invoke('puuush:hosts'),
+  displays: () => ipcRenderer.invoke('puuush:displays'),
+  testHosts: () => ipcRenderer.invoke('puuush:test-hosts'),
   reapplyHotkey: () => ipcRenderer.invoke('puuush:reapply-hotkey'),
   verifyServer: (cfg) => ipcRenderer.invoke('puuush:verify-server', cfg),
 
@@ -46,8 +51,16 @@ contextBridge.exposeInMainWorld('puuush', {
     }
   },
 
+  // --- запись экрана ---
+  startRecording: () => ipcRenderer.invoke('puuush:start-recording'),
+  stopRecording: () => ipcRenderer.invoke('puuush:stop-recording'),
+
+  // --- локальная раздача ---
+  lastLocal: () => ipcRenderer.invoke('puuush:last-local'),
+
   // --- окно ---
   closeSelf: () => ipcRenderer.invoke('puuush:close-self'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('puuush:window-toggle-maximize'),
   openExternal: (url) => ipcRenderer.invoke('puuush:open-external', url),
   platform: process.platform,
   /**

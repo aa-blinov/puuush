@@ -55,6 +55,10 @@ body {
   height: 100%;
 }
 
+:root {
+  --puuush-scrim: rgba(0, 0, 0, 0.45);
+}
+
 body {
   margin: 0;
   background: var(--ui-bg);
@@ -72,7 +76,7 @@ body {
   width: 100%;
   max-width: 42rem;
   margin: 0 auto;
-  padding: var(--ui-space-roomy) var(--ui-space-roomy) var(--ui-space-section);
+  padding: var(--ui-space-roomy);
 }
 
 /* Длинный адрес ссылки должен переноситься, а не растягивать окно. */

@@ -97,15 +97,17 @@ async function runSelfTest({ registerIpc, startTray, trayImage, applyHotkeys, ho
   registerIpc(); // окно настроек ходит в IPC, без них оно не инициализируется
 
   try {
-    const { grabDisplay, displayUnderCursor } = require('./capture');
+    const { grabAllDisplays, displayUnderCursor } = require('./capture');
     const display = displayUnderCursor();
-    const { image, ratio } = await grabDisplay(display);
+    const frames = await grabAllDisplays();
+    const frame = frames.find((f) => f.display.id === display.id) || frames[0];
+    const { image, ratio } = frame;
     const size = image.getSize();
     // Пишем и запрошенный масштаб, и фактическое отношение: расхождение между
     // ними — признак дробного масштабирования на Linux, и его полезно видеть.
     const wanted = (display.scaleFactor || 1);
     step(true, t('selftest.capture'),
-      `${size.width}x${size.height} px, ` +
+      `${frames.length} ${t('selftest.screens')}, ${size.width}x${size.height} px, ` +
       t('selftest.frameNote', { ratio: ratio.x.toFixed(2) }) +
       (Math.abs(ratio.x - wanted) > 0.01
         ? t('selftest.scaleNote', { scale: wanted })
@@ -146,6 +148,10 @@ async function runSelfTest({ registerIpc, startTray, trayImage, applyHotkeys, ho
       hot.imageHotkey
         ? t('selftest.hotkeyOk', { hotkey: s.imageHotkey })
         : t('selftest.hotkeyFail', { hotkey: s.imageHotkey }));
+    step(hot.recordHotkey, t('selftest.recordHotkey'),
+      hot.recordHotkey
+        ? t('selftest.hotkeyOk', { hotkey: s.recordHotkey })
+        : t('selftest.hotkeyFail', { hotkey: s.recordHotkey }));
 
     // Наружу уходит сгенерированная картинка 1x1, а не кусок экрана. Свой
     // сервер настроен не всегда, а откат на catbox с настоящим снимком экрана

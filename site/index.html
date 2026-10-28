@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>puuush: a screenshot of a region, and the link in your clipboard</title>
-  <meta name="description" content="Press the hotkey, drag a frame, and the picture is uploaded and the link is already in your clipboard. The app lives in the tray and can send the file to a server you own.">
+  <meta name="description" content="Press the hotkey, drag a frame, and the picture is uploaded and the link is already in your clipboard. Record a meeting with the microphone and system sound, and send either file to a server you own.">
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#282828" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#fbf1c7" media="(prefers-color-scheme: light)">
   <meta property="og:title" content="puuush">
-  <meta property="og:description" content="Screenshot a region, upload it, and get the link in your clipboard.">
+  <meta property="og:description" content="Screenshot a region or record a meeting with sound, then get the link in your clipboard.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="media/puuush-picker.png">
   <link rel="icon" href="media/icon.svg" type="image/svg+xml">
@@ -41,7 +41,7 @@
     <section class="hero wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
         <h1 id="hero-title">Screenshot a region, get the link, paste it.</h1>
-        <p class="lede">Press the hotkey, drag a frame, and the picture is uploaded and the link is already in your clipboard. The app lives in the tray, has no window of its own, and can send the file to a server you own.</p>
+        <p class="lede">Press the hotkey, drag a frame, and the picture is uploaded and the link is already in your clipboard. Another hotkey records the screen with your microphone and, on Windows, the system sound. The app lives in the tray, has no window of its own, and can send either file to a server you own.</p>
         <div class="actions">
           <a class="button" href="https://github.com/aa-blinov/puuush/releases/latest">Download the latest release</a>
           <a class="button button-ghost" href="#how">How it works</a>
@@ -64,6 +64,11 @@
         <li><span>link in the clipboard</span></li>
       </ol>
       <p>The capture is cut in device pixels rather than in the scaled coordinates the pointer reports, so a Retina display keeps its full resolution in the uploaded file. Every upload is checked with a real request before the link is copied: a link that does not serve the file never reaches the clipboard.</p>
+      <p>The same key starts and stops a recording: <kbd>Ctrl+Shift+R</kbd> (<kbd>Cmd+Shift+R</kbd>). It writes one WebM with the picture, the microphone and, on Windows, the loopback of the system output. The screen with the pointer is recorded by default; the settings can pin a specific monitor or put every screen into one frame.</p>
+      <figure class="shot narrow">
+        <img src="media/puuush-recording.png" width="704" height="453" loading="lazy" alt="The recording section of the settings window: the recording hotkey, the record button, the microphone and system sound switches, and the screen selection.">
+        <figcaption>The recording controls live with the other settings.</figcaption>
+      </figure>
       <ul class="rail">
         <li>
           <h3>Nothing runs in the background.</h3>
@@ -71,18 +76,18 @@
         </li>
         <li>
           <h3>The frame is yours.</h3>
-          <p>Drag a rectangle, press <kbd>Enter</kbd>. A click without a drag takes the whole screen, and <kbd>Esc</kbd> cancels.</p>
+          <p>Drag a rectangle and release the mouse: the frame is taken immediately. A click without a drag takes the whole screen, <kbd>Enter</kbd> confirms the frame already drawn, and <kbd>Esc</kbd> cancels.</p>
         </li>
         <li>
           <h3>Nothing huge leaves the machine.</h3>
-          <p>A file over 64 MiB is refused before it is sent, and the local copy is deleted unless you asked to keep it.</p>
+          <p>Screenshots and ordinary files over 64 MiB are refused before they are sent. A meeting recording has a larger ceiling and goes as a stream, so it is never held in memory twice.</p>
         </li>
       </ul>
     </section>
 
     <section class="section wrap" id="server" aria-labelledby="server-title">
       <h2 id="server-title">Your server first, a public host only if it is down.</h2>
-      <p>Point the app at a server you run and the file lands on your own domain. The write key travels in the <code>Authorization</code> header, never in the URL, so it does not end up in the access log of every proxy in front of the server. When your server refuses the file, the upload falls back to catbox, then pomf2, then uguu, and the interface says which one served the last link.</p>
+      <p>Point the app at a server you run and the file lands on your own domain. The write key travels in the <code>Authorization</code> header, never in the URL, so it does not end up in the access log of every proxy in front of the server. When your server refuses the file, the upload falls back to a cloud host: x0.at, uguu, pomf2, catbox, then litterbox. A speed test in the settings uploads a small file to each cloud host from your computer and puts the quickest ones first, because latency differs between regions. The interface always says which one served the last link.</p>
       <figure class="shot narrow">
         <img src="media/puuush-settings.png" width="720" height="700" loading="lazy" alt="The settings window: the language, the hotkey, the upload target with the own server address and write key, and the behaviour toggles.">
         <figcaption>The settings window: the hotkey, the target, and where the file goes.</figcaption>
@@ -96,8 +101,8 @@
           </thead>
           <tbody>
             <tr><th scope="row">Your own server</th><td>Your domain, and nowhere else. The upload fails loudly if the server does.</td></tr>
-            <tr><th scope="row">Auto</th><td>Your own server first, then the public hosts, in that order.</td></tr>
-            <tr><th scope="row">A public host</th><td>catbox, pomf2 or uguu, and the window says so in plain words.</td></tr>
+            <tr><th scope="row">Auto</th><td>Your own server first, then the cloud hosts in the order the speed test measured.</td></tr>
+            <tr><th scope="row">A cloud host</th><td>x0.at, uguu, pomf2, catbox or litterbox, and the window says so in plain words.</td></tr>
           </tbody>
         </table>
       </div>
