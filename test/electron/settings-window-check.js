@@ -19,6 +19,7 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 
 const SRC = path.join(__dirname, '..', '..', 'src');
+const VERSION = require('../../package.json').version;
 
 const results = [];
 const step = (ok, name, note) => {
@@ -105,6 +106,41 @@ app.whenReady().then(async () => {
   /** Выполняет код в окне и возвращает результат. */
   const run = (code) => win.webContents.executeJavaScript(code, true);
 
+  const pageChrome = await run(`(function () {
+    var title = document.querySelector('header h1');
+    var header = document.querySelector('header');
+    var headerActions = header && header.querySelector(':scope > div:last-child');
+    var actions = Array.from(document.querySelectorAll('.settings-action'));
+    var headerRect = header && header.getBoundingClientRect();
+    var actionsRect = headerActions && headerActions.getBoundingClientRect();
+    return {
+      title: title ? title.textContent.trim() : '',
+      documentTitle: document.title,
+      version: (document.querySelector('.app-version')?.textContent || '').trim(),
+      galleryRight: !!(headerRect && actionsRect && actionsRect.right >= headerRect.right - 1),
+      gallery: Array.from(document.querySelectorAll('button')).some(function (button) {
+        return /gallery|галере/i.test(button.textContent || '');
+      }),
+      historySection: Array.from(document.querySelectorAll('main > section h2')).some(function (heading) {
+        return /history|история/i.test(heading.textContent || '');
+      }),
+      actionsRight: actions.length > 0 && actions.every(function (row) {
+        return getComputedStyle(row).justifyContent === 'flex-end';
+      }),
+      dots: document.querySelectorAll('.rounded-full').length +
+        (document.body.innerText.includes('·') ? 1 : 0)
+    };
+  })()`);
+  step(pageChrome.title === 'Settings', 'заголовок страницы переведён', pageChrome.title);
+  step(pageChrome.documentTitle === 'puuush — settings',
+    'системный заголовок окна содержит название раздела', pageChrome.documentTitle);
+  step(pageChrome.version === `v${VERSION}`, 'номер версии виден в настройках', pageChrome.version);
+  step(pageChrome.galleryRight, 'версия и галерея выровнены вправо', String(pageChrome.galleryRight));
+  step(pageChrome.gallery && !pageChrome.historySection,
+    'галерея доступна из настроек без второго блока истории', String(pageChrome.gallery));
+  step(pageChrome.actionsRight, 'кнопки действий стоят справа', String(pageChrome.actionsRight));
+  step(pageChrome.dots === 0, 'в настройках нет декоративных точек', String(pageChrome.dots));
+
   // --- нативная рамка окна и ритм разделов ----------------------------
   const chrome = await run(`(function () {
     var sections = Array.from(document.querySelectorAll('main > section'));
@@ -121,8 +157,8 @@ app.whenReady().then(async () => {
   })()`);
   step(win.getBounds().height > win.getContentBounds().height,
     'окно использует системную рамку и кнопки Windows', `${win.getBounds().height}/${win.getContentBounds().height}`);
-  step(win.getTitle() === 'puuush' && win.isMenuBarVisible() === false,
-    'иконка/заголовок окна и отсутствие строки меню', win.getTitle());
+  step(win.getTitle() === 'puuush — settings' && win.isMenuBarVisible() === false,
+    'переведённый заголовок окна и отсутствие строки меню', win.getTitle());
   step(chrome.separators === chrome.sections - 1, 'между разделами одна линия', chrome.separators + '/' + chrome.sections);
   step(chrome.sectionGap === 32 && chrome.separatorGap === 24 && chrome.contentGap === 16,
     'вертикальный ритм разделов по шкале кита',
@@ -345,6 +381,10 @@ app.whenReady().then(async () => {
     'русский включается на лету',
     ''
   );
+  step(await run(`document.querySelector('header h1').textContent.trim()`) === 'Настройки',
+    'заголовок настроек переводится без ключа словаря', 'Настройки');
+  step(await run(`document.title`) === 'puuush — настройки',
+    'заголовок системной рамки переводится вместе с окном', await run(`document.title`));
   step(store.getSettings().lang === 'ru', 'язык записан на диск', store.getSettings().lang);
 
   // Обратно на английский: окно не должно остаться в прошлом языке.

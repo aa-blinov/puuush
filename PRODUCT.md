@@ -80,10 +80,11 @@ by releasing the mouse. The region that was dragged is captured immediately:
 there is no second Enter to press. Enter and the space bar stay for the
 keyboard.
 
-The gallery is opened on request from the tray or settings. It scans the
-capture folder as well as upload history, so local-only recordings and files
-remain visible even when they have no link. Saved images and animated GIFs
-preview in their cards, and WebM/video files play there with controls. The
+The gallery is opened on request from the tray or settings. It is the one
+place for capture and upload history. It scans the capture folder as well as upload
+history, so local-only recordings and files remain visible even when they have
+no link. Saved images and animated GIFs preview in their cards, and WebM/video
+files play there with controls. The
 gallery also lets a person copy an image or file, copy or open its link, reveal
 the source in the file manager, and save or move a copy. It does not open by
 itself.
