@@ -367,6 +367,7 @@
   "ui.option.fps.60": "60 frames per second",
   "ui.hint.recordFps": "GIF width is capped: up to 1600 pixels at 30 fps and 960 at 60. If the encoder falls behind, frames are skipped instead of stretching the recording.",
   "ui.settingsTitle": "Settings",
+  "ui.window.controls": "Window controls",
   "ui.window.minimize": "Minimize",
   "ui.window.maximize": "Maximize",
   "ui.window.restore": "Restore",

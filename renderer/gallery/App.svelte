@@ -71,11 +71,21 @@
   function onKeydown(event) {
     if (event.key === 'Escape') preview = null;
   }
+
+  function seekToVideoPreview(event) {
+    const video = event.currentTarget;
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      // WebM often starts with a black frame; seek a fraction in so the card
+      // shows the recording itself before the person presses play.
+      video.currentTime = Math.min(0.25, video.duration / 2);
+    }
+  }
 </script>
 
 <svelte:window on:keydown={onKeydown} />
 
-<div class="page !max-w-6xl">
+<div class="flex h-screen min-h-0 flex-col overflow-hidden bg-bg">
+  <div class="page !max-w-6xl min-h-0 flex-1 overflow-y-auto">
   <PageHeader title={$t('ui.gallery.title')} description={$t('ui.gallery.description')}>
     <svelte:fragment slot="actions">
       <Button variant="secondary" loading={loading} on:click={load}>
@@ -114,23 +124,44 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {#each visibleItems as item (item.id)}
           <article class="overflow-hidden rounded-ui border border-line bg-surface">
-            <button
-              type="button"
-              class="gallery-preview flex aspect-video w-full items-center justify-center overflow-hidden bg-bg text-ink-soft"
-              disabled={!item.thumbnail}
-              aria-label={$t('ui.gallery.preview', { name: item.name })}
-              on:click={() => (preview = item)}
-            >
-              {#if item.thumbnail}
+            <div class="gallery-preview flex aspect-video w-full items-center justify-center overflow-hidden bg-bg text-ink-soft">
+              {#if item.kind === 'video' && item.mediaUrl}
+                <!-- svelte-ignore a11y-media-has-caption -->
+                <video
+                  class="h-full w-full object-contain"
+                  src={item.mediaUrl}
+                  controls
+                  preload="metadata"
+                  playsinline
+                  on:loadedmetadata={seekToVideoPreview}
+                  aria-label={$t('ui.gallery.preview', { name: item.name })}
+                ></video>
+              {:else if item.kind === 'gif' && item.mediaUrl}
+                <button
+                  type="button"
+                  class="h-full w-full"
+                  aria-label={$t('ui.gallery.preview', { name: item.name })}
+                  on:click={() => (preview = item)}
+                >
+                  <img class="h-full w-full object-contain" src={item.mediaUrl} alt={item.name} />
+                </button>
+              {:else if item.thumbnail}
+                <button
+                  type="button"
+                  class="h-full w-full"
+                  aria-label={$t('ui.gallery.preview', { name: item.name })}
+                  on:click={() => (preview = item)}
+                >
                 <img
                   class="h-full w-full object-contain"
                   src={`data:image/jpeg;base64,${item.thumbnail}`}
                   alt={item.name}
                 />
+                </button>
               {:else}
                 <span class="text-xs font-medium uppercase tracking-widest">{kindLabel(item.kind)}</span>
               {/if}
-            </button>
+            </div>
 
             <div class="space-y-3 p-3">
               <div class="min-w-0">
@@ -180,6 +211,7 @@
       </div>
     {/if}
   </main>
+  </div>
 </div>
 
 {#if preview}
@@ -188,11 +220,23 @@
       <div class="flex justify-end">
         <Button variant="secondary" on:click={() => (preview = null)}>{$t('ui.gallery.closePreview')}</Button>
       </div>
-      <img
-        class="max-h-[82vh] max-w-[88vw] rounded-ui border border-line bg-bg object-contain"
-        src={`data:image/jpeg;base64,${preview.thumbnail}`}
-        alt={preview.name}
-      />
+      {#if preview.kind === 'video' && preview.mediaUrl}
+        <!-- svelte-ignore a11y-media-has-caption -->
+        <video
+          class="max-h-[82vh] max-w-[88vw] rounded-ui border border-line bg-bg"
+          src={preview.mediaUrl}
+          controls
+          playsinline
+        ></video>
+      {:else}
+        <img
+          class="max-h-[82vh] max-w-[88vw] rounded-ui border border-line bg-bg object-contain"
+          src={preview.kind === 'gif' && preview.mediaUrl
+            ? preview.mediaUrl
+            : `data:image/jpeg;base64,${preview.thumbnail}`}
+          alt={preview.name}
+        />
+      {/if}
     </div>
   </dialog>
 {/if}

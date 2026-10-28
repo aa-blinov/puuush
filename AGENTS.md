@@ -176,10 +176,10 @@ with the matching section of `CHANGELOG.md` as the body.
   anything that does not survive the transliteration becomes a hash tail. A
   name that cannot be encoded cannot be stored.
 
-- **Settings and gallery use the native Electron frame.** Leave the native
-  titlebar available so the whole top edge moves the window and Windows draws
-  the app icon and window controls. The windows call `setMenu(null)` and hide
-  the menu bar; a web titlebar here would take over dragging again.
+- **Settings and gallery use the native Electron frame.** Leave the titlebar
+  available so the whole top edge moves the window and Windows draws the app
+  icon and window controls. The windows call `setMenu(null)` and hide the menu
+  bar; do not put a web titlebar in front of the native one.
 
 ## Style / safety rails
 

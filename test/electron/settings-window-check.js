@@ -21,7 +21,6 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const SRC = path.join(__dirname, '..', '..', 'src');
 
 const results = [];
-let windowMaximizeCalls = 0;
 const step = (ok, name, note) => {
   results.push({ ok, name, note: note || '' });
   console.log(`  ${ok ? 'ОК  ' : 'ПРОВАЛ'} ${name}${note ? ': ' + note : ''}`);
@@ -73,11 +72,6 @@ app.whenReady().then(async () => {
   store.setSettings({ hostOrder: ['uguu', 'x0'] });
   // Синхронный ответ на язык: окно спрашивает его до первой отрисовки.
   ipcMain.on('puuush:lang', (e) => { e.returnValue = store.getSettings().lang; });
-  ipcMain.handle('puuush:window-toggle-maximize', () => {
-    windowMaximizeCalls += 1;
-    return true;
-  });
-  ipcMain.handle('puuush:close-self', () => true);
 
   const win = new BrowserWindow({
     width: 720,
@@ -85,7 +79,6 @@ app.whenReady().then(async () => {
     show: false,
     title: 'puuush',
     icon: path.join(SRC, '..', 'assets', 'icon.ico'),
-    frame: true,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(SRC, 'preload.js'),
@@ -112,7 +105,7 @@ app.whenReady().then(async () => {
   /** Выполняет код в окне и возвращает результат. */
   const run = (code) => win.webContents.executeJavaScript(code, true);
 
-  // --- нативная шапка окна и ритм разделов ----------------------------
+  // --- нативная рамка окна и ритм разделов ----------------------------
   const chrome = await run(`(function () {
     var sections = Array.from(document.querySelectorAll('main > section'));
     var second = sections[1] || null;
@@ -126,9 +119,10 @@ app.whenReady().then(async () => {
       contentGap: content ? parseFloat(getComputedStyle(content).marginTop) : -1
     };
   })()`);
+  step(win.getBounds().height > win.getContentBounds().height,
+    'окно использует системную рамку и кнопки Windows', `${win.getBounds().height}/${win.getContentBounds().height}`);
   step(win.getTitle() === 'puuush' && win.isMenuBarVisible() === false,
-    'нативная шапка с названием приложения и без строки меню', win.getTitle());
-  step(win.isSimpleFullScreen() === false, 'окно с системной рамкой Windows', String(win.isSimpleFullScreen()));
+    'иконка/заголовок окна и отсутствие строки меню', win.getTitle());
   step(chrome.separators === chrome.sections - 1, 'между разделами одна линия', chrome.separators + '/' + chrome.sections);
   step(chrome.sectionGap === 32 && chrome.separatorGap === 24 && chrome.contentGap === 16,
     'вертикальный ритм разделов по шкале кита',

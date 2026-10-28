@@ -80,10 +80,13 @@ by releasing the mouse. The region that was dragged is captured immediately:
 there is no second Enter to press. Enter and the space bar stay for the
 keyboard.
 
-The gallery is opened on request from the tray or settings. It shows recent
-captures and recordings, previews saved images, and gives direct actions to
-copy an image or file, copy or open its link, reveal the source in the file
-manager, and save a copy elsewhere. It does not open by itself.
+The gallery is opened on request from the tray or settings. It scans the
+capture folder as well as upload history, so local-only recordings and files
+remain visible even when they have no link. Saved images and animated GIFs
+preview in their cards, and WebM/video files play there with controls. The
+gallery also lets a person copy an image or file, copy or open its link, reveal
+the source in the file manager, and save or move a copy. It does not open by
+itself.
 
 Success for the user: the link is in the clipboard before they have thought
 about where to paste it. Success for the product: the file lands on the
@@ -114,8 +117,10 @@ and usually mid-sentence in a chat. The app must not steal focus, and it must
 not open a window that covers what the person is doing.
 
 The region picker is the window that opens unasked, and it closes to the tray
-when it loses focus. The settings window opens only when the person asks for
-it, uses the native Electron titlebar, and stays resizable.
+when it loses focus. The settings and gallery windows open only when the
+person asks for them. They use Electron's native window frame and app icon,
+and both stay resizable. The top edge belongs to the window manager so the
+whole strip moves the window.
 
 The server runs on the team's own machine, behind Caddy, and is updated by
 copying one file and restarting the systemd unit. The people who operate it
@@ -151,11 +156,11 @@ Confirmed by the code:
 - The recording shows a frame around the recorded screen and a panel with the
   timer, pause and stop. Both windows are excluded from the capture and take
   no focus; the frame also lets the mouse through.
-- The settings window uses Electron's native titlebar, native controls and
-  window title `puuush`. The native menu is hidden.
+- Settings and gallery use Electron's native titlebar and app icon. The menu
+  bar is hidden, and the system controls move, resize and close each window.
 - A separate gallery window opens only when requested from the tray or
-  settings; it previews local images and acts on recent capture files and
-  upload links.
+  settings; it scans the capture folder and history, previews images/GIFs,
+  plays local videos inline, and acts on files and upload links.
 - The tray icon blinks while a recording runs, shows work while an upload is
   in progress, and a left click on it opens the menu.
 - Screenshots and recordings have separate destinations. A screenshot is a
