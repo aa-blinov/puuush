@@ -23,16 +23,29 @@ const PRELOAD = path.join(__dirname, 'shots-preload.cjs');
 const OVERLAY_PRELOAD = path.join(__dirname, 'shots-overlay-preload.cjs');
 
 // Подписи хостингов переводит окно: главному процессу нужны только имена.
+const MB = 1024 * 1024;
 const HOSTS = [
-  { name: 'catbox', temp: false },
-  { name: 'pomf2', temp: false },
-  { name: 'uguu', temp: true },
+  { name: 'x0', temp: true, max: 512 * MB },
+  { name: 'uguu', temp: true, max: 128 * MB },
+  { name: 'pomf2', temp: false, max: 100 * MB },
+  { name: 'catbox', temp: false, max: 200 * MB },
+  { name: 'litterbox', temp: true, max: 1024 * MB },
+];
+const DISPLAYS = [
+  { id: '1', name: 'Built-in Display', width: 1920, height: 1080, scaleFactor: 1, primary: true, index: 1 },
+  { id: '2', name: 'Studio Display', width: 2560, height: 1440, scaleFactor: 1, primary: false, index: 2 },
 ];
 
 /** Состояние, из которого снимают окно настроек. */
 const SETTINGS = {
   hotkey: 'CommandOrControl+Shift+S',
   imageHotkey: 'CommandOrControl+Alt+S',
+  recordHotkey: 'CommandOrControl+Shift+R',
+  recordMicrophone: true,
+  recordSystemAudio: true,
+  recordScreen: 'cursor',
+  recordTarget: 'cloud',
+  recordMicGain: 1,
   host: 'own',
   own: { base_url: 'https://media.example.com', write_key: 'секретный-ключ' },
   openAfterUpload: false,
@@ -55,12 +68,30 @@ const step = (message) => {
 };
 
 /** Состояние, которое отдаёт окну заглушка моста. */
-let state = { settings: {}, hosts: [], history: [] };
+let state = { settings: {}, hosts: [], history: [], displays: DISPLAYS };
 /** Снимок экрана для окна выбора области. */
 let frame = { dataUrl: '', width: 0, height: 0 };
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * capturePage иногда отвечает UnknownVizError, когда Chromium как раз
+ * перестраивает поверхность после изменения размера. Это не повод ронять
+ * снимки README: несколько коротких повторов забирают готовый кадр.
+ */
+async function capturePage(win) {
+  let last = null;
+  for (let i = 0; i < 4; i++) {
+    try {
+      return await win.webContents.capturePage();
+    } catch (e) {
+      last = e;
+      await wait(400);
+    }
+  }
+  throw last;
 }
 
 /**
@@ -74,7 +105,7 @@ function wait(ms) {
 async function shotSettings(name, next, opts = {}) {
   const dir = opts.dir || OUT;
   const full = opts.full !== false;
-  state = next;
+  state = { displays: DISPLAYS, ...next };
 
   const win = new BrowserWindow({
     width: 720,
@@ -115,7 +146,39 @@ async function shotSettings(name, next, opts = {}) {
     await wait(150);
   }
 
-  const image = await win.webContents.capturePage();
+  // Снимок одного раздела: окно целиком, а потом кадр режется по границам
+  // раздела. Прокрутка для этого не годится: capturePage снимает видимую
+  // часть, и при скрытом окне она остаётся в начале страницы.
+  let crop = null;
+  if (opts.section) {
+    crop = await win.webContents.executeJavaScript(
+      `(function () {
+        var heads = Array.from(document.querySelectorAll('h2'));
+        var want = ${JSON.stringify(String(opts.section).toLowerCase())};
+        var i = heads.findIndex(function (h) {
+          return (h.textContent || '').toLowerCase().includes(want);
+        });
+        if (i < 0) return null;
+        var y = function (el) { return Math.floor(el.getBoundingClientRect().top + window.scrollY); };
+        var top = Math.max(0, y(heads[i]) - 16);
+        var bottom = i + 1 < heads.length
+          ? y(heads[i + 1]) - 12
+          : document.documentElement.scrollHeight;
+        return { top: top, height: bottom - top };
+      })()`
+    );
+    await wait(200);
+  }
+  let image = await capturePage(win);
+  if (crop && crop.height > 0) {
+    const size = image.getSize();
+    image = image.crop({
+      x: 0,
+      y: Math.min(crop.top, size.height - 1),
+      width: size.width,
+      height: Math.min(crop.height, size.height - Math.max(0, crop.top)),
+    });
+  }
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), image.toPNG());
   win.destroy();
@@ -142,7 +205,7 @@ async function shotOverlay(opts = {}) {
   });
   await desktop.loadFile(path.join(tmp, 'desktop.html'));
   await wait(500);
-  const shot = await desktop.webContents.capturePage();
+  const shot = await capturePage(desktop);
   const dataUrl = 'data:image/png;base64,' + shot.toPNG().toString('base64');
   desktop.destroy();
 
@@ -187,7 +250,7 @@ async function shotOverlay(opts = {}) {
   `);
   await wait(400);
 
-  const image = await win.webContents.capturePage();
+  const image = await capturePage(win);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), image.toPNG());
   win.destroy();
@@ -298,6 +361,20 @@ app.whenReady().then(async () => {
   }, { dir: SITE_MEDIA, full: false });
 
   await shotOverlay({ dir: SITE_MEDIA, name: 'puuush-picker.png' });
+
+  // Запись: окно настроек с разделом записи. Отдельный снимок нужен, чтобы
+  // в README было видно, что запись есть, а не только снимок.
+  await shotSettings('ui-recording.png', {
+    settings: SETTINGS,
+    hosts: HOSTS,
+    history: [],
+  }, { section: 'recording' });
+
+  await shotSettings('puuush-recording.png', {
+    settings: SETTINGS,
+    hosts: HOSTS,
+    history: [],
+  }, { dir: SITE_MEDIA, section: 'recording' });
 
   step('  всё снято');
   fs.copyFileSync(LOG, path.join(OUT, '.shots.log'));

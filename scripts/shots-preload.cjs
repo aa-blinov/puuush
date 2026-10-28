@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('puuush', {
   getHistory: () => ipcRenderer.invoke('shot:state').then((s) => s.history || []),
   clearHistory: async () => {},
   hosts: () => ipcRenderer.invoke('shot:state').then((s) => s.hosts),
+  displays: () => ipcRenderer.invoke('shot:state').then((s) => s.displays || []),
   saveSettings: async (patch) => {
     const s = await ipcRenderer.invoke('shot:state');
     return { ...s.settings, ...patch };
@@ -31,6 +32,7 @@ contextBridge.exposeInMainWorld('puuush', {
   onProgress: () => {},
   pathForFile: () => '',
   closeSelf: async () => {},
+  toggleMaximizeWindow: async () => false,
   openExternal: async () => {},
   platform: process.platform,
   lang: () => 'en',

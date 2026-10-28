@@ -21,6 +21,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const SRC = path.join(__dirname, '..', '..', 'src');
 
 const results = [];
+let windowMaximizeCalls = 0;
 const step = (ok, name, note) => {
   results.push({ ok, name, note: note || '' });
   console.log(`  ${ok ? 'ОК  ' : 'ПРОВАЛ'} ${name}${note ? ': ' + note : ''}`);
@@ -63,13 +64,29 @@ app.whenReady().then(async () => {
   ipcMain.handle('puuush:get-history', () => store.getHistory());
   ipcMain.handle('puuush:clear-history', () => store.clearHistory());
   ipcMain.handle('puuush:hosts', () => HOSTS.map((h) => ({ name: h.name, temp: h.temp })));
+  ipcMain.handle('puuush:displays', () => [
+    { id: '1', name: 'Built-in', width: 1920, height: 1080, scaleFactor: 1, primary: true, index: 1 },
+    { id: '2', name: 'External', width: 2560, height: 1440, scaleFactor: 1, primary: false, index: 2 },
+  ]);
+  // Порядок из проверки скорости должен попасть в подпись «авто», а не
+  // остаться только в невидимой настройке.
+  store.setSettings({ hostOrder: ['uguu', 'x0'] });
   // Синхронный ответ на язык: окно спрашивает его до первой отрисовки.
   ipcMain.on('puuush:lang', (e) => { e.returnValue = store.getSettings().lang; });
+  ipcMain.handle('puuush:window-toggle-maximize', () => {
+    windowMaximizeCalls += 1;
+    return true;
+  });
+  ipcMain.handle('puuush:close-self', () => true);
 
   const win = new BrowserWindow({
     width: 720,
     height: 700,
     show: false,
+    title: 'puuush',
+    icon: path.join(SRC, '..', 'assets', 'icon.ico'),
+    frame: true,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(SRC, 'preload.js'),
       contextIsolation: true,
@@ -81,7 +98,11 @@ app.whenReady().then(async () => {
   win.webContents.on('console-message', (...args) => {
     const ev = args[0];
     const modern = args.length === 1 && ev && typeof ev === 'object' && 'message' in ev;
-    if ((modern ? ev.level : args[1]) >= 2) errors.push(String(modern ? ev.message : args[2]));
+    if ((modern ? ev.level : args[1]) >= 2) {
+      const message = String(modern ? ev.message : args[2]);
+      errors.push(message);
+      console.log('  консоль окна: ' + message);
+    }
   });
   win.webContents.on('preload-error', (_e, p, e) => errors.push('preload ' + e.message));
 
@@ -91,16 +112,53 @@ app.whenReady().then(async () => {
   /** Выполняет код в окне и возвращает результат. */
   const run = (code) => win.webContents.executeJavaScript(code, true);
 
+  // --- нативная шапка окна и ритм разделов ----------------------------
+  const chrome = await run(`(function () {
+    var sections = Array.from(document.querySelectorAll('main > section'));
+    var second = sections[1] || null;
+    var separator = second ? second.querySelector('[role="separator"]') : null;
+    var content = second ? second.querySelector('h2 + div') : null;
+    return {
+      sections: sections.length,
+      separators: document.querySelectorAll('main > section [role="separator"]').length,
+      sectionGap: second ? parseFloat(getComputedStyle(second).marginTop) : -1,
+      separatorGap: separator ? parseFloat(getComputedStyle(separator).marginBottom) : -1,
+      contentGap: content ? parseFloat(getComputedStyle(content).marginTop) : -1
+    };
+  })()`);
+  step(win.getTitle() === 'puuush' && win.isMenuBarVisible() === false,
+    'нативная шапка с названием приложения и без строки меню', win.getTitle());
+  step(win.isSimpleFullScreen() === false, 'окно с системной рамкой Windows', String(win.isSimpleFullScreen()));
+  step(chrome.separators === chrome.sections - 1, 'между разделами одна линия', chrome.separators + '/' + chrome.sections);
+  step(chrome.sectionGap === 32 && chrome.separatorGap === 24 && chrome.contentGap === 16,
+    'вертикальный ритм разделов по шкале кита',
+    [chrome.sectionGap, chrome.separatorGap, chrome.contentGap].join('/'));
+
   // --- поле хоткея и список хостингов -------------------------------
   const start = await run(`(function () {
     var hotkey = document.getElementById('hotkey');
     var imageHotkey = document.getElementById('imageHotkey');
+    var recordHotkey = document.getElementById('recordHotkey');
     var host = document.getElementById('host');
     return {
       hotkey: hotkey ? hotkey.value : null,
       imageHotkey: imageHotkey ? imageHotkey.value : null,
+      recordHotkey: recordHotkey ? recordHotkey.value : null,
       hosts: host ? host.options.length : 0,
+      autoLabel: host && host.options[0] ? host.options[0].textContent : '',
       ownVisible: document.getElementById('ownBox') ? document.getElementById('ownBox').style.display : null,
+      speedButton: !!Array.from(document.querySelectorAll('button')).find(function (b) {
+        return /speed|скорост/i.test(b.textContent || '');
+      }),
+      micBox: !!document.getElementById('recordMicrophone'),
+      recordButton: !!Array.from(document.querySelectorAll('button')).find(function (b) {
+        return /Record|Записать/i.test(b.textContent || '');
+      }),
+      recordScreen: document.getElementById('recordScreen') ? document.getElementById('recordScreen').value : null,
+      screenOptions: document.getElementById('recordScreen') ? document.getElementById('recordScreen').options.length : 0,
+      externalLabel: document.getElementById('recordScreen')
+        ? Array.from(document.getElementById('recordScreen').options).map(function (o) { return o.textContent; }).find(function (t) { return /External/.test(t); })
+        : '',
     };
   })()`);
 
@@ -108,8 +166,31 @@ app.whenReady().then(async () => {
   const mac = process.platform === 'darwin';
   step(start.hotkey === (mac ? '⌘⇧S' : 'Ctrl+Shift+S'), 'хоткей подставился', start.hotkey);
   step(start.imageHotkey === (mac ? '⌘⌥S' : 'Ctrl+Alt+S'), 'хоткей картинки в буфер подставился', start.imageHotkey);
-  step(start.hosts >= 4, 'вариантов хостинга', String(start.hosts));
+  step(start.recordHotkey === (mac ? '⌘⇧R' : 'Ctrl+Shift+R'), 'хоткей записи подставился', start.recordHotkey);
+  step(start.micBox, 'галочка микрофона на месте', String(start.micBox));
+  step(start.recordButton, 'кнопка записи на месте', String(start.recordButton));
+  step(start.recordScreen === 'cursor', 'по умолчанию запись берёт экран под курсором', start.recordScreen);
+  step(start.screenOptions >= 4, 'экраны есть в выборе записи', String(start.screenOptions));
+  step(/External/.test(start.externalLabel || '') && /2560×1440/.test(start.externalLabel || ''),
+    'конкретный экран виден с разрешением', start.externalLabel);
+  step(start.hosts >= 6, 'вариантов хостинга', String(start.hosts));
+  step(
+    /uguu,\s*x0/.test(start.autoLabel),
+    'подпись авто начинается с измеренного порядка',
+    start.autoLabel
+  );
+  step(start.speedButton, 'кнопка проверки скорости на месте', String(start.speedButton));
   step(start.ownVisible === 'block', 'блок своего сервера виден в режиме авто', start.ownVisible);
+
+  // --- выбор конкретного экрана ---------------------------------------
+  await run(`(function () {
+    var screen = document.getElementById('recordScreen');
+    screen.value = '2';
+    screen.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+  step(store.getSettings().recordScreen === '2', 'конкретный экран записан на диск', store.getSettings().recordScreen);
+  step(store.getSettings().recordAllScreens === false, 'старый «все экраны» выключен для одного монитора', String(store.getSettings().recordAllScreens));
 
   // --- смена хостинга -----------------------------------------------
   await run(`(function () {

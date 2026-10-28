@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 const root = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Сборка обоих окон интерфейса.
+ * Сборка всех окон интерфейса: настроек, выбора области и записи.
  *
  * Исходники ок лежат в renderer/, собранные файлы — в src/renderer/ рядом с
  * главным процессом: electron-builder берёт каталог src целиком, и в
@@ -33,7 +33,13 @@ export default defineConfig({
     rollupOptions: {
       input: {
         settings: resolve(root, 'renderer/settings.html'),
+        gallery: resolve(root, 'renderer/gallery.html'),
         overlay: resolve(root, 'renderer/overlay.html'),
+        recorder: resolve(root, 'renderer/recorder/recorder.html'),
+        // Рамка на записываемом экране и панель с таймером: два маленьких
+        // окна, без которых запись шла бы невидимо.
+        recFrame: resolve(root, 'renderer/rec-frame.html'),
+        recPanel: resolve(root, 'renderer/rec-panel.html'),
       },
     },
   },

@@ -44,6 +44,10 @@
   let hosts = [];
   let hostOptions = [];
 
+  /** Подключённые экраны для выбора того, что записывать. */
+  let displays = [];
+  let screenOptions = [];
+
   /** Почему файл настроек не прочитан. Пусто — значит, всё в порядке. */
   let brokenReason = '';
 
@@ -53,11 +57,22 @@
   /** Ответ на проверку своего сервера. */
   let serverState = { kind: '', text: '' };
 
+  /** Проверка скорости облачных хостингов. */
+  let speedTesting = false;
+  let speedResults = [];
+
+  /** Локальная ссылка на последний файл: работает, пока открыто приложение. */
+  let localUrl = '';
+
+  /** Идёт ли запись экрана прямо сейчас. */
+  let recording = false;
+  let recordingBusy = false;
+
   /** История ссылок. */
   let historyItems = [];
 
   /** Поля формы. Тексты двух комбинаций: сама комбинация или подсказка про запись. */
-  let hotkeyTexts = { hotkey: '', imageHotkey: '' };
+  let hotkeyTexts = { hotkey: '', imageHotkey: '', recordHotkey: '' };
   /** Поле, которое ждёт новую комбинацию, либо null. */
   let listening = null;
   let host = 'auto';
@@ -68,6 +83,17 @@
   let openAfterUpload = false;
   let keepLocalCopy = true;
   let launchAtLogin = false;
+  let recordMicrophone = true;
+  let recordSystemAudio = true;
+  let recordScreen = 'cursor';
+  let videoMode = 'link';
+  let photoMode = 'link';
+  let recordArea = 'screen';
+  let recordFormat = 'video';
+  let recordFps = '30';
+  let recordMicGain = '1';
+  /** Можно ли записать системный звук на этой системе. */
+  const systemAudioPossible = bridge.platform === 'win32';
 
   /** Служебное. */
   let ownUrlInvalid = false;
@@ -84,7 +110,15 @@
   $: ownReady = Boolean(ownUrl.trim() && ownKey.trim());
   $: nextTarget = describeNextTarget(host, ownReady, hosts, $t);
   $: stateTag = describeStateTag(status.kind, $t);
-  $: hostOptions = buildHostOptions(hosts, $t);
+  $: hostOptions = buildHostOptions(hosts, $t, settings.hostOrder);
+  $: screenOptions = buildScreenOptions(displays, $t, recordScreen);
+  // Куда девать готовую запись и с каким усилением писать микрофон.
+  $: targetOptions = buildTargetOptions($t);
+  $: photoOptions = buildPhotoOptions($t);
+  $: areaOptions = buildAreaOptions($t);
+  $: formatOptions = buildFormatOptions($t);
+  $: fpsOptions = buildFpsOptions($t);
+  $: gainOptions = buildGainOptions($t);
 
   /**
    * Подпись хостинга для человека.
@@ -102,12 +136,137 @@
     return label === key ? id : label;
   }
 
-  function buildHostOptions(list, tr) {
+  /** Куда девать готовую запись. */
+  function buildTargetOptions(tr) {
     return [
-      { value: 'auto', label: tr('ui.hostAuto', { hosts: list.map((h) => h.name).join(', ') }) },
-      ...list.map((h) => ({ value: h.name, label: tr(`host.${h.name}`) })),
+      { value: 'link', label: tr('ui.option.video.link') },
+      { value: 'clipboard', label: tr('ui.option.video.clipboard') },
+      { value: 'disk', label: tr('ui.option.video.disk') },
+    ];
+  }
+
+  /** Что делать со снимком. */
+  function buildPhotoOptions(tr) {
+    return [
+      { value: 'link', label: tr('ui.option.photo.link') },
+      { value: 'clipboard', label: tr('ui.option.photo.clipboard') },
+    ];
+  }
+
+  /** Область записи. */
+  function buildAreaOptions(tr) {
+    return [
+      { value: 'screen', label: tr('ui.option.area.screen') },
+      { value: 'region', label: tr('ui.option.area.region') },
+      { value: 'all', label: tr('ui.option.area.all') },
+    ];
+  }
+
+  /** Формат: видео со звуком или GIF без звука. */
+  function buildFormatOptions(tr) {
+    return [
+      { value: 'video', label: tr('ui.option.format.video') },
+      { value: 'gif', label: tr('ui.option.format.gif') },
+    ];
+  }
+
+  function buildFpsOptions(tr) {
+    return [
+      { value: '30', label: tr('ui.option.fps.30') },
+      { value: '60', label: tr('ui.option.fps.60') },
+    ];
+  }
+
+  /** Усиление микрофона: тихий голос на записи лечится здесь. */
+  function buildGainOptions(tr) {
+    return [
+      { value: '1', label: tr('ui.option.gain.100') },
+      { value: '1.5', label: tr('ui.option.gain.150') },
+      { value: '2', label: tr('ui.option.gain.200') },
+    ];
+  }
+
+  /** Выбор экрана: курсор, конкретный монитор или все мониторы в одном кадре. */
+  function buildScreenOptions(list, tr, current) {
+    const options = [
+      { value: 'cursor', label: tr('ui.screen.cursor') },
+      { value: 'all', label: tr('ui.screen.all') },
+    ];
+    for (const d of list) {
+      const name = d.name || tr('ui.screen.displayN', { n: d.index || '' });
+      const shape = `${d.width}×${d.height}`;
+      options.push({
+        value: String(d.id),
+        label: d.primary
+          ? tr('ui.screen.primary', { name, shape })
+          : tr('ui.screen.display', { name, shape }),
+      });
+    }
+    if (current && current !== 'cursor' && current !== 'all' && !list.some((d) => String(d.id) === current)) {
+      options.push({ value: current, label: tr('ui.screen.missing') });
+    }
+    return options;
+  }
+
+  function buildHostOptions(list, tr, order) {
+    // В режиме «авто» первым будет тот хостинг, который измерила проверка
+    // скорости. Показывать при этом статический список — значит обещать не
+    // тот порядок, в котором приложение действительно пойдёт.
+    const byName = new Map(list.map((h) => [h.name, h]));
+    const names = [];
+    for (const name of Array.isArray(order) ? order : []) {
+      if (byName.has(name) && !names.includes(name)) names.push(name);
+    }
+    for (const h of list) if (!names.includes(h.name)) names.push(h.name);
+    return [
+      { value: 'auto', label: tr('ui.hostAuto', { hosts: names.join(', ') }) },
+      ...list.map((h) => ({
+        value: h.name,
+        // Потолок файла виден прямо в списке: у временных хостингов он
+        // больше, чем у постоянных, и для записи встречи это важно.
+        label: h.max
+          ? `${tr(`host.${h.name}`)} — ${Math.round(h.max / 1048576)} ${tr('ui.size.mb')}`
+          : tr(`host.${h.name}`),
+      })),
       { value: 'own', label: tr('ui.hostOwnOnly') },
     ];
+  }
+
+  /**
+   * Проверка скорости облачных хостингов.
+   *
+   * Задержка до одного и того же хостинга из разных регионов разная, и
+   * угадать её нельзя. Проверка загружает маленький файл в каждый хостинг,
+   * показывает время и сохраняет порядок: в режиме «авто» быстрые
+   * пробуются первыми.
+   */
+  async function testHosts() {
+    if (speedTesting) return;
+    speedTesting = true;
+    speedResults = [];
+    setStatus($t('ui.speed.testing'), 'busy');
+    try {
+      const r = await bridge.testHosts();
+      speedResults = (r && r.results) || [];
+      const ok = speedResults.filter((x) => x.ok).length;
+      setStatus(
+        ok
+          ? $t('ui.speed.done', { count: ok })
+          : $t('ui.speed.none'),
+        ok ? 'ok' : 'bad'
+      );
+    } catch (e) {
+      fail(e && e.message ? e.message : $t('ui.speed.failed'));
+    } finally {
+      speedTesting = false;
+    }
+  }
+
+  /** Время для человека: миллисекунды, секунды для долгих ответов. */
+  function speedText(ms) {
+    if (ms == null) return '';
+    if (ms < 1000) return `${ms} ${$t('ui.speed.ms')}`;
+    return `${(ms / 1000).toFixed(1)} ${$t('ui.speed.sec')}`;
   }
 
   /**
@@ -171,6 +330,7 @@
     hotkeyTexts = {
       hotkey: prettyCombo(next.hotkey, isMac),
       imageHotkey: prettyCombo(next.imageHotkey, isMac),
+      recordHotkey: prettyCombo(next.recordHotkey, isMac),
     };
     host = next.host;
     ownUrl = (next.own && next.own.base_url) || '';
@@ -178,6 +338,17 @@
     openAfterUpload = !!next.openAfterUpload;
     keepLocalCopy = next.keepLocalCopy !== false;
     launchAtLogin = !!next.launchAtLogin;
+    recordMicrophone = next.recordMicrophone !== false;
+    recordSystemAudio = next.recordSystemAudio !== false;
+    recordScreen = typeof next.recordScreen === 'string' && next.recordScreen
+      ? next.recordScreen
+      : (next.recordAllScreens === true ? 'all' : 'cursor');
+    videoMode = next.videoMode === 'clipboard' || next.videoMode === 'disk' ? next.videoMode : 'link';
+    photoMode = next.photoMode === 'clipboard' ? 'clipboard' : 'link';
+    recordArea = next.recordArea === 'region' || next.recordArea === 'all' ? next.recordArea : 'screen';
+    recordFormat = next.recordFormat === 'gif' ? 'gif' : 'video';
+    recordFps = Number(next.recordFps) === 60 ? '60' : '30';
+    recordMicGain = String(Number(next.recordMicGain) === 2 ? 2 : Number(next.recordMicGain) === 1.5 ? 1.5 : 1);
     saveDir = next.saveDir || '';
     // Язык меняем вместе с настройками: окно перерисовывается само, а
     // главный процесс узнаёт о новом языке из сохранения.
@@ -289,7 +460,7 @@
   async function testHotkey() {
     try {
       const applied = await bridge.reapplyHotkey();
-      const fields = ['hotkey', 'imageHotkey'];
+      const fields = ['hotkey', 'imageHotkey', 'recordHotkey'];
       const shown = fields.map((f) => prettyCombo(settings[f], isMac));
       const taken = fields.filter((f) => !applied[f]).map((f) => prettyCombo(settings[f], isMac));
       setStatus(
@@ -416,6 +587,69 @@
     await save({ launchAtLogin });
   }
 
+  async function onRecordMicrophoneChange() {
+    await save({ recordMicrophone });
+  }
+
+  async function onRecordSystemAudioChange() {
+    await save({ recordSystemAudio });
+  }
+
+  async function onVideoModeChange() {
+    await save({ videoMode });
+  }
+
+  async function onPhotoModeChange() {
+    await save({ photoMode });
+  }
+
+  async function onRecordAreaChange() {
+    await save({ recordArea });
+  }
+
+  async function onRecordFormatChange() {
+    await save({ recordFormat });
+  }
+
+  async function onRecordFpsChange() {
+    await save({ recordFps: Number(recordFps) || 30 });
+  }
+
+  async function onRecordMicGainChange() {
+    // В настройках лежит число, а поле выбора работает со строками.
+    await save({ recordMicGain: Number(recordMicGain) || 1 });
+  }
+
+  async function onRecordScreenChange() {
+    // Старый boolean пишем рядом: если человек откроет эту же папку в
+    // предыдущей версии, она поймёт хотя бы режим «все экраны».
+    await save({ recordScreen, recordAllScreens: recordScreen === 'all' });
+  }
+
+  /**
+   * Запись экрана из окна настроек.
+   *
+   * Та же команда, что и по хоткею: запись идёт, а файл уходит на сервер
+   * после остановки. Кнопка показывает, что происходит, потому что запись
+   * идёт минуту и молчать в это время неправильно.
+   */
+  async function toggleRecording() {
+    if (recordingBusy) return;
+    recordingBusy = true;
+    try {
+      if (recording) {
+        await bridge.stopRecording();
+      } else {
+        // Обещание живёт до конца загрузки файла, поэтому ждём здесь.
+        await bridge.startRecording();
+      }
+    } catch (e) {
+      fail($t('rec.failed', { error: e && e.message ? e.message : e }));
+    } finally {
+      recordingBusy = false;
+    }
+  }
+
   async function onSaveDirChange(event) {
     const value = fieldValue(event, saveDir.trim());
     await save({ saveDir: value });
@@ -451,6 +685,7 @@
       const head = downgraded
         ? $t('ui.status.downgraded', { host: hostLabel(r.host) })
         : (r.copied === false ? $t('ui.status.clipboardBusy') : hostLabel(r.host));
+      localUrl = r.localUrl || '';
       setStatus(
         `${head}${r.temp ? $t('ui.status.temp') : ''}` +
           (r.copied === false ? $t('ui.status.copyNote') : $t('ui.status.copiedNote')),
@@ -517,7 +752,7 @@
       return;
     }
     historyError = '';
-    historyItems = list;
+    historyItems = list.filter((item) => item.url);
   }
 
   async function clearHistory() {
@@ -542,16 +777,25 @@
       // Главный процесс шлёт сюда человеческие причины («сервер отверг ключ»,
       // «ссылка не вывозит файл»). Раньше они уходили в никуда.
       if (p.message) setStatus(p.message, 'busy');
+    } else if (p.state === 'recording') {
+      recording = true;
+      setStatus($t('ui.status.recording'), 'busy');
+    } else if (p.state === 'idle') {
+      recording = false;
     } else if (p.state === 'capturing') setStatus($t('ui.status.progressCapturing'), 'busy');
     else if (p.state === 'captured') setStatus($t('ui.status.progressCaptured'), 'busy');
     else if (p.state === 'copied') setStatus($t('note.imageInClipboard'), 'ok');
     else if (p.state === 'error') fail(p.message);
-    else if (p.state === 'done') {
+    else if (p.state === 'done' && p.host === 'disk') {
+      recording = false;
+      setStatus($t('ui.status.recordOnDisk') + (p.file ? ': ' + p.file : ''), 'ok');
+    } else if (p.state === 'done') {
       // Главный процесс уже знает, копировалась ли ссылка и не уехала ли она
       // на публичный хостинг. Раньше эти поля игнорировались, и окно врало.
       const head = p.privacyDowngraded
         ? $t('ui.status.downgraded', { host: hostLabel(p.host) })
         : (p.copied === false ? $t('ui.status.clipboardBusy') : hostLabel(p.host));
+      localUrl = p.localUrl || '';
       setStatus(
         `${head}${p.temp ? $t('ui.status.temp') : ''}` +
           (p.copied === false ? $t('ui.status.copyNote') : $t('ui.status.copiedNote')),
@@ -567,6 +811,10 @@
 
   async function initHosts() {
     hosts = await bridge.hosts();
+  }
+
+  async function initDisplays() {
+    displays = await bridge.displays();
   }
 
   (async function init() {
@@ -594,6 +842,12 @@
       return;
     }
 
+    try {
+      await initDisplays();
+    } catch (e) {
+      fail($t('ui.displaysFailed', { error: e && e.message ? e.message : e }));
+    }
+
     await loadHistory();
   })();
 </script>
@@ -604,16 +858,12 @@
 <div class="page">
   <PageHeader
     class="[&>div:first-child]:max-w-[30rem]"
-    title="puuush"
+    title={$t('ui.settingsTitle')}
     description={$t('ui.description')}
-  >
-    <svelte:fragment slot="actions">
-      <Button variant="quiet" on:click={() => bridge.closeSelf()}>{$t('ui.close')}</Button>
-    </svelte:fragment>
-  </PageHeader>
+  />
 
   {#if brokenReason}
-    <div class="mt-4">
+    <div class="mt-comfortable">
       <Notice tone="danger" title={$t('ui.brokenTitle')}>
         <p>{brokenReason}</p>
         <p class="mt-1">{$t('ui.brokenBody')}</p>
@@ -621,15 +871,17 @@
     </div>
   {/if}
 
-  <main class="mt-6">
+  <main class="mt-roomy">
     <SectionBlock title={$t('ui.section.language')} first>
-      <SegmentedControl
-        label={$t('ui.section.language')}
-        options={LANGS}
-        value={$lang}
-        on:change={onLangChange}
-      />
-      <p class="mt-1.5 text-xs leading-relaxed text-ink-soft">{$t('ui.hint.language')}</p>
+      <div class="space-y-field">
+        <SegmentedControl
+          label={$t('ui.section.language')}
+          options={LANGS}
+          value={$lang}
+          on:change={onLangChange}
+        />
+        <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.language')}</p>
+      </div>
     </SectionBlock>
 
     <SectionBlock title={$t('ui.section.hotkey')}>
@@ -642,44 +894,177 @@
         on:focus={() => startListening('hotkey')}
         on:blur={stopListening}
       />
-      <div class="mt-3">
-        <TextField
-          id="imageHotkey"
-          label={$t('ui.field.image')}
-          value={hotkeyTexts.imageHotkey}
-          readonly
-          spellcheck="false"
-          on:focus={() => startListening('imageHotkey')}
-          on:blur={stopListening}
-        />
+      <TextField
+        id="imageHotkey"
+        label={$t('ui.field.image')}
+        value={hotkeyTexts.imageHotkey}
+        readonly
+        spellcheck="false"
+        on:focus={() => startListening('imageHotkey')}
+        on:blur={stopListening}
+      />
+      <SelectField
+        id="photoMode"
+        label={$t('ui.field.photoMode')}
+        bind:value={photoMode}
+        options={photoOptions}
+        on:change={onPhotoModeChange}
+      />
+      <div class="space-y-base">
+        <div>
+          <Button variant="secondary" on:click={testHotkey}>
+            {$t('ui.button.check')}
+          </Button>
+        </div>
+        <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.hotkey')}</p>
       </div>
-      <div class="mt-3">
-        <Button variant="secondary" on:click={testHotkey}>
-          {$t('ui.button.check')}
+    </SectionBlock>
+
+    <SectionBlock title={$t('ui.section.recording')}>
+      <TextField
+        id="recordHotkey"
+        label={$t('ui.field.recordHotkey')}
+        value={hotkeyTexts.recordHotkey}
+        readonly
+        spellcheck="false"
+        on:focus={() => startListening('recordHotkey')}
+        on:blur={stopListening}
+      />
+
+      <div>
+        <Button variant="secondary" loading={recordingBusy} on:click={toggleRecording}>
+          {recording ? $t('ui.button.stopRecord') : $t('ui.button.startRecord')}
         </Button>
       </div>
-      <p class="mt-1.5 text-xs leading-relaxed text-ink-soft">{$t('ui.hint.hotkey')}</p>
+
+      <SelectField
+        id="recordFormat"
+        label={$t('ui.field.recordFormat')}
+        bind:value={recordFormat}
+        options={formatOptions}
+        on:change={onRecordFormatChange}
+      />
+      <p class="text-xs leading-relaxed text-ink-soft">
+        {$t(recordFormat === 'gif' ? 'ui.hint.format.gif' : 'ui.hint.format.video')}
+      </p>
+
+      {#if recordFormat !== 'gif'}
+        <div class="space-y-base">
+          <div>
+            <Checkbox id="recordMicrophone" bind:checked={recordMicrophone} on:change={onRecordMicrophoneChange}>
+              {$t('ui.check.recordMicrophone')}
+            </Checkbox>
+          </div>
+          {#if systemAudioPossible}
+            <div class="space-y-field">
+              <div>
+                <Checkbox id="recordSystemAudio" bind:checked={recordSystemAudio} on:change={onRecordSystemAudioChange}>
+                  {$t('ui.check.recordSystemAudio')}
+                </Checkbox>
+              </div>
+              <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.recordSystemAudio')}</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <SelectField
+        id="videoMode"
+        label={$t('ui.field.videoMode')}
+        bind:value={videoMode}
+        options={targetOptions}
+        on:change={onVideoModeChange}
+      />
+      <p class="text-xs leading-relaxed text-ink-soft">
+        {$t(`ui.hint.videoMode.${videoMode}`)}
+      </p>
+
+      <SelectField
+        id="recordArea"
+        label={$t('ui.field.recordArea')}
+        bind:value={recordArea}
+        options={areaOptions}
+        hint={$t('ui.hint.recordArea')}
+        on:change={onRecordAreaChange}
+      />
+      <SelectField
+        id="recordFps"
+        label={$t('ui.field.recordFps')}
+        bind:value={recordFps}
+        options={fpsOptions}
+        hint={$t('ui.hint.recordFps')}
+        on:change={onRecordFpsChange}
+      />
+      {#if recordFormat !== 'gif' && recordMicrophone}
+        <SelectField
+          id="recordMicGain"
+          label={$t('ui.field.recordMicGain')}
+          bind:value={recordMicGain}
+          options={gainOptions}
+          hint={$t('ui.hint.recordMicGain')}
+          on:change={onRecordMicGainChange}
+        />
+      {/if}
+      {#if recordArea === 'screen'}
+        <SelectField
+          id="recordScreen"
+          label={$t('ui.field.recordScreen')}
+          bind:value={recordScreen}
+          options={screenOptions}
+          hint={$t('ui.hint.recordScreen')}
+          on:change={onRecordScreenChange}
+        />
+      {/if}
+      <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.recording')}</p>
     </SectionBlock>
 
     <SectionBlock title={$t('ui.section.hosting')}>
-      <SelectField
-        id="host"
-        label={$t('ui.field.hosting')}
-        bind:value={host}
-        options={hostOptions}
-        on:change={onHostChange}
-      />
-      <p
-        class="mt-1.5 text-xs leading-relaxed {nextTarget.warn
-          ? 'font-medium text-ink'
-          : 'text-ink-soft'}"
-        aria-live="polite"
-      >
-        {nextTarget.text}
-      </p>
+      <div class="space-y-field">
+        <SelectField
+          id="host"
+          label={$t('ui.field.hosting')}
+          bind:value={host}
+          options={hostOptions}
+          on:change={onHostChange}
+        />
+        <p
+          class="text-xs leading-relaxed {nextTarget.warn
+            ? 'font-medium text-ink'
+            : 'text-ink-soft'}"
+          aria-live="polite"
+        >
+          {nextTarget.text}
+        </p>
+      </div>
 
-      <div id="ownBox" class="mt-4 space-y-3" style:display={ownVisible ? 'block' : 'none'}>
-        <TextField
+      <div class="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" loading={speedTesting} on:click={testHosts}>
+          {$t('ui.speed.button')}
+        </Button>
+        <span class="text-xs text-ink-soft">{$t('ui.speed.hint')}</span>
+      </div>
+
+      {#if speedResults.length}
+        <ul class="space-y-1 text-xs">
+          {#each speedResults as r (r.name)}
+            <li class="flex items-center gap-2 {r.ok ? 'text-ink-soft' : 'text-ink-faint'}">
+              <span
+                class="inline-block h-1.5 w-1.5 shrink-0 rounded-full {r.ok
+                  ? 'bg-success'
+                  : 'bg-danger'}"
+                aria-hidden="true"
+              ></span>
+              <span class="min-w-0 flex-1 truncate">{hostLabel(r.name)}</span>
+              <span class="shrink-0 tabular-nums">
+                {r.ok ? speedText(r.ms) : $t('ui.speed.unreachable')}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      <div id="ownBox" class="space-y-comfortable" style:display={ownVisible ? 'block' : 'none'}>
+          <TextField
           id="ownUrl"
           label={$t('ui.field.ownServer')}
           placeholder={$t('ui.field.ownUrlPlaceholder')}
@@ -688,22 +1073,20 @@
           on:change={onOwnUrlChange}
         />
 
-        <div class="flex items-end gap-3">
-          <div class="min-w-0 flex-1">
-            <TextField
-              id="ownKey"
-              label={$t('ui.field.writeKey')}
-              type={keyVisible ? 'text' : 'password'}
-              autocomplete="off"
-              spellcheck="false"
-              placeholder={$t('ui.field.writeKeyPlaceholder')}
-              bind:value={ownKey}
-              on:change={onOwnKeyChange}
-            />
-          </div>
+        <TextField
+          id="ownKey"
+          label={$t('ui.field.writeKey')}
+          type={keyVisible ? 'text' : 'password'}
+          autocomplete="off"
+          spellcheck="false"
+          placeholder={$t('ui.field.writeKeyPlaceholder')}
+          bind:value={ownKey}
+          on:change={onOwnKeyChange}
+        />
+
+        <div class="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
-            class="shrink-0"
             aria-pressed={keyVisible}
             on:click={toggleKeyVisibility}
           >
@@ -711,7 +1094,6 @@
           </Button>
           <Button
             variant="secondary"
-            class="shrink-0"
             loading={verifying}
             on:click={checkServer}
           >
@@ -739,7 +1121,7 @@
     </SectionBlock>
 
     <SectionBlock title={$t('ui.section.behaviour')}>
-      <div class="space-y-3">
+      <div class="space-y-base">
         <div>
           <Checkbox id="openAfterUpload" bind:checked={openAfterUpload} on:change={onOpenAfterUploadChange}>
             {$t('ui.check.openInBrowser')}
@@ -749,32 +1131,33 @@
           <Checkbox id="keepLocalCopy" bind:checked={keepLocalCopy} on:change={onKeepLocalCopyChange}>
             {$t('ui.check.keepLocalCopy')}
           </Checkbox>
+          <p class="mt-field text-xs leading-relaxed text-ink-soft">{$t('ui.hint.keepLocalCopy')}</p>
         </div>
         {#if canLaunchAtLogin}
-          <div>
-            <Checkbox id="launchAtLogin" bind:checked={launchAtLogin} on:change={onLaunchAtLoginChange}>
-              {$t('ui.check.launchAtLogin')}
-            </Checkbox>
-            <p class="mt-1 text-xs leading-relaxed text-ink-soft">{$t('ui.hint.launchAtLogin')}</p>
+          <div class="space-y-field">
+            <div>
+              <Checkbox id="launchAtLogin" bind:checked={launchAtLogin} on:change={onLaunchAtLoginChange}>
+                {$t('ui.check.launchAtLogin')}
+              </Checkbox>
+            </div>
+            <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.launchAtLogin')}</p>
           </div>
         {/if}
-
-        <div class="flex items-end gap-3">
-          <div class="min-w-0 flex-1">
-            <TextField
-              id="saveDir"
-              label={$t('ui.field.saveDir')}
-              placeholder={$t('ui.field.saveDirPlaceholder')}
-              bind:value={saveDir}
-              on:change={onSaveDirChange}
-            />
-          </div>
-          <Button variant="secondary" class="shrink-0" on:click={pickDir}>
-            {$t('ui.button.choose')}
-          </Button>
-        </div>
       </div>
-      <p class="mt-1.5 text-xs leading-relaxed text-ink-soft">{$t('ui.hint.behaviour')}</p>
+
+      <TextField
+        id="saveDir"
+        label={$t('ui.field.saveDir')}
+        placeholder={$t('ui.field.saveDirPlaceholder')}
+        bind:value={saveDir}
+        on:change={onSaveDirChange}
+      />
+      <div>
+        <Button variant="secondary" on:click={pickDir}>
+          {$t('ui.button.choose')}
+        </Button>
+      </div>
+      <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.behaviour')}</p>
     </SectionBlock>
 
     <SectionBlock title={$t('ui.section.upload')}>
@@ -784,7 +1167,7 @@
         bind:files={picked}
         on:change={onFilesPicked}
       />
-      <div class="mt-3 flex flex-wrap items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <Button variant="secondary" on:click={uploadClipboard}>
           {$t('ui.button.fromClipboard')}
         </Button>
@@ -792,7 +1175,7 @@
       </div>
 
       {#if status.text || status.url}
-        <div class="mt-3">
+        <div>
           <Notice tone={status.kind === 'bad' ? 'danger' : status.kind === 'ok' ? 'success' : 'info'}>
             {#if status.url}
               <p class="break-url text-ink">{status.url}</p>
@@ -800,12 +1183,22 @@
             {#if status.text}
               <p class={status.url ? 'mt-1' : ''}>{status.text}</p>
             {/if}
+            {#if localUrl}
+              <p class="mt-1 break-url text-xs text-ink-soft">
+                {$t('ui.local.label')}: {localUrl}
+              </p>
+            {/if}
           </Notice>
         </div>
       {/if}
     </SectionBlock>
 
     <SectionBlock title={$t('ui.section.history')}>
+      <div class="flex justify-end">
+        <Button variant="secondary" on:click={() => bridge.openGallery()}>
+          {$t('ui.gallery.open')}
+        </Button>
+      </div>
       {#if historyError}
         <div class="rounded-ui border border-line">
           <EmptyState title={historyError} />
@@ -839,7 +1232,7 @@
           />
         </div>
       {/if}
-      <div class="mt-3 flex justify-end">
+      <div class="flex justify-end">
         <Button variant="danger" on:click={clearHistory}>{$t('ui.button.clearHistory')}</Button>
       </div>
     </SectionBlock>
