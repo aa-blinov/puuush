@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { app } = require('electron');
+const { app, BrowserWindow } = require('electron');
 
 const SRC = path.join(__dirname, '..', '..', 'src');
 app.on('window-all-closed', () => {});
@@ -99,16 +99,14 @@ app.whenReady().then(async () => {
   await new Promise((r) => win.webContents.once('did-finish-load', r));
   await sleep(500);
   const call = (code) => win.webContents.executeJavaScript(code, true);
-  // Нативная рамка Windows сама даёт системную область перетаскивания и
-  // кнопки окна; страница не должна рисовать поверх неё собственный titlebar.
-  const nativeChromeOk = win.getTitle().startsWith('puuush') && !win.isKiosk();
+  const nativeChromeOk = win.getBounds().height > win.getContentBounds().height && !win.isKiosk();
   const nameOk = app.getName() === 'puuush';
   const windowChromeOk = win.isResizable() && !win.isMenuBarVisible() &&
     win.isMinimizable() && win.isMaximizable() && nativeChromeOk && nameOk;
   console.log('  ' + (win.isResizable() ? 'ОК  ' : 'ПРОВАЛ') + ' окно настроек меняет размер');
   console.log('  ' + (!win.isMenuBarVisible() ? 'ОК  ' : 'ПРОВАЛ') + ' нативное меню не выглядывает');
   console.log('  ' + (win.isMinimizable() && win.isMaximizable() ? 'ОК  ' : 'ПРОВАЛ') + ' кнопки окна доступны');
-  console.log('  ' + (nativeChromeOk ? 'ОК  ' : 'ПРОВАЛ') + ' системная шапка Electron: ' + win.getTitle());
+  console.log('  ' + (nativeChromeOk ? 'ОК  ' : 'ПРОВАЛ') + ' нативная рамка Electron с рамкой и кнопками Windows: ' + JSON.stringify({ bounds: win.getBounds(), content: win.getContentBounds() }));
   console.log('  ' + (nameOk ? 'ОК  ' : 'ПРОВАЛ') + ' приложение называется puuush: ' + app.getName());
 
   const t0 = Date.now();
@@ -149,7 +147,6 @@ app.whenReady().then(async () => {
 
   // Куда девать запись: только на диск, без ссылки и без загрузки.
   store.setSettings({ videoMode: 'disk' });
-  const historyBefore = store.getHistory().length;
   const filesBefore = new Set(fs.readdirSync(store.shotsDir()).filter((f) => f.endsWith('.webm')));
   await call('window.puuush.startRecording()');
   await sleep(2500);
@@ -165,12 +162,47 @@ app.whenReady().then(async () => {
   }
   const savedSize = saved ? fs.statSync(path.join(store.shotsDir(), saved)).size : 0;
   const diskState = main.runtimeState();
-  const historyAfter = store.getHistory().length;
+  const historyDeadline = Date.now() + 10000;
+  let historyAfterDisk = store.getHistory();
+  let diskEntry = null;
+  while (saved && Date.now() < historyDeadline) {
+    diskEntry = historyAfterDisk.find((item) => path.basename(item.file || '') === saved);
+    if (diskEntry) break;
+    await sleep(200);
+    historyAfterDisk = store.getHistory();
+  }
   console.log('  ' + (saved && savedSize > 0 ? 'ОК  ' : 'ПРОВАЛ') + ' запись только на диск: файл на месте' + (saved ? ': ' + saved + ', ' + savedSize + ' байт' : ''));
-  console.log('  ' + (historyAfter === historyBefore ? 'ОК  ' : 'ПРОВАЛ') + ' при сохранении на диск ссылки не появилось');
+  console.log('  ' + (diskEntry && !diskEntry.url ? 'ОК  ' : 'ПРОВАЛ') + ' локальная запись появилась в истории без ссылки' + (!diskEntry ? ': ' + JSON.stringify(historyAfterDisk[0]) : ''));
   console.log('  ' + (!diskState.recording && !diskState.trayBlinking && diskState.chromeWindows === 0 ? 'ОК  ' : 'ПРОВАЛ') + ' после остановки трей и рамка вернулись в покой');
+
+  await call('window.puuush.openGallery()');
+  const galleryDeadline = Date.now() + 10000;
+  let gallery = null;
+  while (Date.now() < galleryDeadline) {
+    gallery = BrowserWindow.getAllWindows().find((candidate) => candidate !== win);
+    if (gallery) break;
+    await sleep(100);
+  }
+  let galleryVideo = null;
+  if (gallery) {
+    if (gallery.webContents.isLoading()) await new Promise((r) => gallery.webContents.once('did-finish-load', r));
+    const videoDeadline = Date.now() + 8000;
+    while (Date.now() < videoDeadline) {
+      galleryVideo = await gallery.webContents.executeJavaScript(`(function () {
+        var cards = Array.from(document.querySelectorAll('article'));
+        var card = cards.find(function (item) { return (item.textContent || '').includes(${JSON.stringify(saved || '')}); });
+        var video = card && card.querySelector('video');
+        return { found: !!card, video: !!video, controls: !!(video && video.controls), src: video ? video.currentSrc : '' };
+      })()`);
+      if (galleryVideo && galleryVideo.video && galleryVideo.src) break;
+      await sleep(200);
+    }
+  }
+  const galleryPlayback = !!(galleryVideo && galleryVideo.found && galleryVideo.video &&
+    galleryVideo.controls && /^http:\/\/127\.0\.0\.1:\d+\/f\//.test(galleryVideo.src));
+  console.log('  ' + (galleryPlayback ? 'ОК  ' : 'ПРОВАЛ') + ' локальная запись сразу появилась в галерее с видеоплеером: ' + JSON.stringify(galleryVideo));
 
   await new Promise((r) => server.close(r));
   await new Promise((r) => caddy.close(r));
-  app.exit(windowChromeOk && readyMs < 8000 && stopMs < 30000 && entry && fetched ? 0 : 1);
+  app.exit(windowChromeOk && readyMs < 8000 && stopMs < 30000 && entry && fetched && galleryPlayback ? 0 : 1);
 });

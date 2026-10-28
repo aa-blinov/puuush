@@ -67,6 +67,9 @@ function trayAvailable() {
 
 let settingsWin = null;
 let galleryWin = null;
+// IDs returned to the gallery resolve only to files discovered in its folder
+// or history. The renderer never supplies an arbitrary filesystem path.
+const galleryEntries = new Map();
 let busy = false;
 
 // Запись экрана. Живёт одна: две записи одновременно делили бы и звук, и
@@ -1067,36 +1070,94 @@ function registerIpc() {
   handle('puuush:get-history', () => store.getHistory());
   handle('puuush:show-gallery', () => { openGallery(); return true; });
   const galleryId = (entry) => `${entry.at || 0}|${entry.url || ''}|${entry.file || ''}`;
-  handle('puuush:get-gallery', () => store.getHistory().filter((entry) => entry && typeof entry === 'object').map((entry) => {
-    const file = typeof entry.file === 'string' ? entry.file : '';
-    const ext = path.extname(file).toLowerCase();
-    const exists = !!file && fs.existsSync(file);
-    const image = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'].includes(ext);
-    let thumbnail = '';
-    if (exists && image) {
-      try {
-        const preview = nativeImage.createFromPath(file);
-        if (!preview.isEmpty()) thumbnail = preview.resize({ width: 480, height: 320, quality: 'good' }).toJPEG(78).toString('base64');
-      } catch (e) {
-        /* картинка остаётся доступна через файл или ссылку */
+  handle('puuush:get-gallery', () => {
+    galleryEntries.clear();
+    const history = store.getHistory().filter((entry) => entry && typeof entry === 'object');
+    const byFile = new Map();
+    for (const entry of history) {
+      if (typeof entry.file !== 'string' || !entry.file) continue;
+      const key = path.resolve(entry.file);
+      if (!byFile.has(key)) byFile.set(key, entry);
+    }
+
+    const localFiles = [];
+    try {
+      for (const name of fs.readdirSync(store.shotsDir())) {
+        const file = path.join(store.shotsDir(), name);
+        const ext = path.extname(name).toLowerCase();
+        if (!['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.webm', '.mp4', '.mov', '.mkv', '.m4v', '.avi'].includes(ext)) continue;
+        try {
+          const stat = fs.statSync(file);
+          if (stat.isFile()) localFiles.push({ file, at: stat.mtimeMs });
+        } catch (e) {
+          /* файл мог уйти во время обновления галереи */
+        }
+      }
+    } catch (e) {
+      /* история ссылок всё ещё доступна, даже если папка снимков недоступна */
+    }
+    localFiles.sort((a, b) => b.at - a.at);
+
+    const entries = [];
+    const seenFiles = new Set();
+    const addEntry = (entry, file, fallbackAt = 0) => {
+      const resolved = file ? path.resolve(file) : '';
+      const ext = path.extname(file || '').toLowerCase();
+      const image = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'].includes(ext);
+      const video = ['.webm', '.mp4', '.mov', '.mkv', '.m4v', '.avi'].includes(ext);
+      const exists = !!resolved && fs.existsSync(resolved);
+      const id = entry ? galleryId(entry) : `local:${Math.round(fallbackAt)}:${resolved}`;
+      let thumbnail = '';
+      if (exists && image && ext !== '.gif') {
+        try {
+          const preview = nativeImage.createFromPath(resolved);
+          if (!preview.isEmpty()) thumbnail = preview.resize({ width: 480, height: 320, quality: 'good' }).toJPEG(78).toString('base64');
+        } catch (e) {
+          /* картинка остаётся доступна через файл или ссылку */
+        }
+      }
+      galleryEntries.set(id, { entry, file: resolved, inHistory: !!entry });
+      entries.push({
+        id,
+        at: entry && entry.at ? entry.at : fallbackAt,
+        name: resolved ? path.basename(resolved) : (entry.source || entry.url || ''),
+        kind: image ? (ext === '.gif' ? 'gif' : 'image') : video ? 'video' : 'file',
+        url: entry && typeof entry.url === 'string' ? entry.url : '',
+        file: resolved,
+        exists,
+        thumbnail,
+        mediaUrl: '',
+        host: entry && typeof entry.host === 'string' ? entry.host : '',
+      });
+      if (resolved) seenFiles.add(resolved);
+    };
+
+    for (const local of localFiles.slice(0, 50)) {
+      const resolved = path.resolve(local.file);
+      addEntry(byFile.get(resolved) || null, resolved, local.at);
+    }
+    for (const entry of history) {
+      const file = typeof entry.file === 'string' ? path.resolve(entry.file) : '';
+      if (file && seenFiles.has(file)) continue;
+      addEntry(entry, file, entry.at || 0);
+    }
+
+    entries.sort((a, b) => b.at - a.at);
+    const recent = entries.slice(0, 50);
+    if (localServer) {
+      for (const item of recent) {
+        if (!item.exists || (item.kind !== 'video' && item.kind !== 'gif')) continue;
+        const media = localServer.add(item.file);
+        if (media) item.mediaUrl = media.url;
       }
     }
-    return {
-      id: galleryId(entry),
-      at: entry.at || 0,
-      name: file ? path.basename(file) : (entry.source || entry.url || ''),
-      kind: image ? (ext === '.gif' ? 'gif' : 'image') : (['.webm', '.mp4', '.mov', '.mkv', '.m4v', '.avi'].includes(ext) ? 'video' : 'file'),
-      url: typeof entry.url === 'string' ? entry.url : '',
-      file,
-      exists,
-      thumbnail,
-      host: typeof entry.host === 'string' ? entry.host : '',
-    };
-  }));
+    return recent;
+  });
   handle('puuush:gallery-action', async (event, id, action) => {
-    const entry = store.getHistory().find((item) => item && galleryId(item) === id);
-    if (!entry) return { ok: false, reason: 'missing' };
-    const file = typeof entry.file === 'string' && fs.existsSync(entry.file) ? entry.file : '';
+    const indexed = galleryEntries.get(String(id));
+    if (!indexed) return { ok: false, reason: 'missing' };
+    const entry = indexed.entry || {};
+    const file = indexed.file && fs.existsSync(indexed.file) ? indexed.file : '';
     if (action === 'copy-link' && /^https?:\/\//.test(String(entry.url || ''))) {
       const copied = await deliverToClipboard(entry.url);
       return copied ? { ok: true } : { ok: false, reason: 'clipboard' };
@@ -1153,15 +1214,17 @@ function registerIpc() {
         destination = path.join(destinationDir, `${stem} (${suffix})${ext}`);
       }
       await fs.promises.copyFile(file, destination);
-      const local = entry.localUrl ? localLink(destination) : null;
-      try {
-        if (!store.updateHistoryEntry(id, {
-          file: destination,
-          localUrl: local ? local.url : null,
-        })) throw new Error(t('ui.gallery.unavailable'));
-      } catch (e) {
-        try { await fs.promises.unlink(destination); } catch (ignored) { /* сохранить обе копии безопаснее */ }
-        throw e;
+      if (indexed.inHistory) {
+        const local = entry.localUrl ? localLink(destination) : null;
+        try {
+          if (!store.updateHistoryEntry(id, {
+            file: destination,
+            localUrl: local ? local.url : null,
+          })) throw new Error(t('ui.gallery.unavailable'));
+        } catch (e) {
+          try { await fs.promises.unlink(destination); } catch (ignored) { /* сохранить обе копии безопаснее */ }
+          throw e;
+        }
       }
       try {
         await fs.promises.unlink(file);
@@ -1305,15 +1368,6 @@ function registerIpc() {
   handle('puuush:last-local', () => {
     const last = store.getHistory()[0];
     return (last && last.localUrl) || null;
-  });
-  // Вызывающее окно может свернуться/развернуться по IPC. Сравнивать с
-  // settingsWin здесь нельзя: проверки открывают собственное окно.
-  handle('puuush:window-toggle-maximize', (_e) => {
-    const win = BrowserWindow.fromWebContents(_e.sender);
-    if (!win || win.isDestroyed()) return false;
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-    return win.isMaximized();
   });
   handle('puuush:close-self', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);

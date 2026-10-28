@@ -855,7 +855,8 @@
 <!-- Файл, брошенный мимо зоны загрузки, иначе открылся бы в самом окне. -->
 <svelte:window on:keydown={onWindowKeydown} on:dragover|preventDefault on:drop|preventDefault />
 
-<div class="page">
+<div class="flex h-screen min-h-0 flex-col overflow-hidden bg-bg">
+  <div class="page min-h-0 flex-1 overflow-y-auto">
   <PageHeader
     class="[&>div:first-child]:max-w-[30rem]"
     title={$t('ui.settingsTitle')}
@@ -1237,4 +1238,5 @@
       </div>
     </SectionBlock>
   </main>
+  </div>
 </div>

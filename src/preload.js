@@ -60,7 +60,6 @@ contextBridge.exposeInMainWorld('puuush', {
 
   // --- окно ---
   closeSelf: () => ipcRenderer.invoke('puuush:close-self'),
-  toggleMaximizeWindow: () => ipcRenderer.invoke('puuush:window-toggle-maximize'),
   openExternal: (url) => ipcRenderer.invoke('puuush:open-external', url),
   platform: process.platform,
   /**

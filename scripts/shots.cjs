@@ -134,7 +134,7 @@ async function shotSettings(name, next, opts = {}) {
 
   if (full) {
     const height = await win.webContents.executeJavaScript(
-      'Math.ceil(document.documentElement.scrollHeight)'
+      'Math.ceil(document.querySelector(".page").scrollHeight)'
     );
     win.setBounds({ width: 720, height: Math.min(height, 4000) });
     await wait(400);
