@@ -1115,7 +1115,16 @@ function registerIpc() {
       if (exists && image && ext !== '.gif') {
         try {
           const preview = nativeImage.createFromPath(resolved);
-          if (!preview.isEmpty()) thumbnail = preview.resize({ width: 480, height: 320, quality: 'good' }).toJPEG(78).toString('base64');
+          if (!preview.isEmpty()) {
+            // Пропорция сохраняется: сплющивание в 3:2 искажало каждый
+            // снимок и врало о форме файла. Ограничивается длинная сторона.
+            const sz = preview.getSize();
+            const wide = sz.width >= sz.height;
+            const fitted = preview.resize(
+              wide ? { width: 480, quality: 'good' } : { height: 480, quality: 'good' }
+            );
+            thumbnail = fitted.toJPEG(78).toString('base64');
+          }
         } catch (e) {
           /* картинка остаётся доступна через файл или ссылку */
         }

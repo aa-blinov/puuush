@@ -214,7 +214,7 @@ app.whenReady().then(async () => {
   const galleryNativeFrame = !!(gallery &&
     gallery.getBounds().height > gallery.getContentBounds().height &&
     !gallery.isMenuBarVisible() && gallery.getTitle().startsWith('puuush'));
-  const galleryTitleOk = !!(gallery && gallery.getTitle() === 'puuush — Gallery');
+  const galleryTitleOk = !!(gallery && gallery.getTitle() === 'puuush — File gallery');
   console.log('  ' + (galleryNativeFrame ? 'ОК  ' : 'ПРОВАЛ') + ' галерея использует системную рамку и заголовок: ' +
     JSON.stringify(gallery && { title: gallery.getTitle(), bounds: gallery.getBounds(), content: gallery.getContentBounds() }));
   console.log('  ' + (galleryTitleOk ? 'ОК  ' : 'ПРОВАЛ') + ' системный заголовок галереи локализован: ' + (gallery && gallery.getTitle()));

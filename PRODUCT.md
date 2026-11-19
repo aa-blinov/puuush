@@ -84,10 +84,13 @@ The gallery is opened on request from the tray or settings. It is the one
 place for capture and upload history. It scans the capture folder as well as upload
 history, so local-only recordings and files remain visible even when they have
 no link. Saved images and animated GIFs preview in their cards, and WebM/video
-files play there with controls. The
-gallery also lets a person copy an image or file, copy or open its link, reveal
-the source in the file manager, and save or move a copy. It does not open by
-itself.
+files play there with controls. The name can be searched, the grid answers to
+the arrow keys, and Enter opens the preview. Every card has one primary action,
+with the rest folded into a "more" tail. Files that have disappeared from the
+disk stand in a slim list below the grid instead of empty cards, and their
+links stay usable. The gallery also lets a person copy an image or file, copy or open its
+link, reveal the source in the file manager, and save or move a copy. It does
+not open by itself.
 
 Success for the user: the link is in the clipboard before they have thought
 about where to paste it. Success for the product: the file lands on the
