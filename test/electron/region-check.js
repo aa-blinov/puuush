@@ -49,11 +49,25 @@ app.whenReady().then(async () => {
       (v) => ({ key, ok: true, ms: Date.now() - t0, val: v === null ? 'null (отмена)' : (v ? 'файл ' + path.basename(v.path) : 'null') }),
       (e) => ({ key, ok: false, ms: Date.now() - t0, val: 'ошибка: ' + e.message })
     );
-    // Ждём, пока окно выбора появится, и жмём клавишу настоящим вводом.
-    await new Promise(r => setTimeout(r, 1500));
-    const wins = BrowserWindow.getAllWindows();
-    const ov = wins.find(w => w.webContents.getURL().includes('overlay.html'));
-    if (!ov) { results.push({ key, ok: false, val: 'окно выбора не появилось' }); continue; }
+    // Ждём окно, а не фиксированное время: на нескольких мониторах
+    // desktopCapturer перед открытием окна занимает больше полутора секунд,
+    // и прежний сон докладывал «окно выбора не появилось» про окно, которое
+    // ещё открывалось. Если captureTo отказал раньше, чем открылось хоть одно
+    // окно, в результат уходит его причина, а не молчаливое ожидание до конца.
+    const early = new Promise((resolve) => p.then(resolve, resolve));
+    let settled = null;
+    let ov = null;
+    const openDeadline = Date.now() + 20000;
+    while (Date.now() < openDeadline && !ov && !settled) {
+      ov = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('overlay.html'));
+      settled = ov ? null : await Promise.race([early, new Promise((r) => setTimeout(r, 200))]);
+    }
+    if (!ov) {
+      results.push(settled
+        ? { ...settled, ok: false, val: settled.ok ? `выбор закрылся сам: ${settled.val}` : settled.val }
+        : { key, ok: false, val: 'окно выбора не появилось' });
+      continue;
+    }
     // Дальше ждём не время, а снимок экрана в окне. На медленной машине окно
     // грузится дольше полутора секунд, и Enter уходил в пустоту: размер
     // экрана ещё был неизвестен, а вслепую отправлять нечего.
@@ -152,7 +166,16 @@ app.whenReady().then(async () => {
       () => { if (!done) { done = true; resolve(null); } }
     );
     setTimeout(async () => {
-      const ov = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('overlay.html'));
+      // Здесь тот же повод ждать окно циклом: после фиксированного сна окно
+      // на нескольких мониторах ещё не открывалось, молчаливый выход обнулял
+      // счётчик окон, и медленная машина выглядела как «снимок по отпусканию
+      // мыши не работает».
+      const dlOpen = Date.now() + 20000;
+      let ov = null;
+      while (Date.now() < dlOpen && !ov) {
+        ov = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().includes('overlay.html'));
+        if (!ov) await new Promise((r) => setTimeout(r, 200));
+      }
       if (!ov) return;
       // Сколько окон выбора открылось: по одному на экран.
       pickerCount = BrowserWindow.getAllWindows().filter((w) => w.webContents.getURL().includes('overlay.html')).length;
