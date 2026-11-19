@@ -177,6 +177,8 @@ app.whenReady().then(async () => {
       hosts: host ? host.options.length : 0,
       autoLabel: host && host.options[0] ? host.options[0].textContent : '',
       ownVisible: document.getElementById('ownBox') ? document.getElementById('ownBox').style.display : null,
+      s3Visible: document.getElementById('s3Box') ? document.getElementById('s3Box').style.display : null,
+      s3Option: host ? Array.prototype.some.call(host.options, function (o) { return o.value === 's3'; }) : false,
       speedButton: !!Array.from(document.querySelectorAll('button')).find(function (b) {
         return /speed|скорост/i.test(b.textContent || '');
       }),
@@ -211,6 +213,8 @@ app.whenReady().then(async () => {
   );
   step(start.speedButton, 'кнопка проверки скорости на месте', String(start.speedButton));
   step(start.ownVisible === 'block', 'блок своего сервера виден в режиме авто', start.ownVisible);
+  step(start.s3Visible === 'block', 'блок S3 виден в режиме авто', start.s3Visible);
+  step(start.s3Option, 'S3 есть в списке хостингов', String(start.s3Option));
 
   // --- выбор конкретного экрана ---------------------------------------
   await run(`(function () {
@@ -234,12 +238,14 @@ app.whenReady().then(async () => {
     return {
       value: document.getElementById('host').value,
       ownVisible: document.getElementById('ownBox').style.display,
+      s3Visible: document.getElementById('s3Box').style.display,
       text: document.body.innerText,
     };
   })()`);
 
   step(afterHost.value === 'catbox', 'хостинг переключился', afterHost.value);
   step(afterHost.ownVisible === 'none', 'свой сервер спрятан в публичном режиме', afterHost.ownVisible);
+  step(afterHost.s3Visible === 'none', 'S3 спрятан в публичном режиме', afterHost.s3Visible);
   step(
     afterHost.text.includes('public host'),
     'предупреждение о публичном хостинге',
@@ -292,6 +298,65 @@ app.whenReady().then(async () => {
   const ownText = await run(`document.body.textContent`);
   step(ownText.includes('the upload fails') && !ownText.includes('goes to a public host'),
     'в режиме own подсказка ключа не обещает внешний хостинг', '');
+  await run(`(function () {
+    var host = document.getElementById('host');
+    host.value = 'auto';
+    host.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+
+  // --- S3: поля пишутся по одному, режим «только S3» держит свою коробку --
+  await run(`(function () {
+    var host = document.getElementById('host');
+    host.value = 's3';
+    host.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 600));
+  const s3Mode = await run(`(function () {
+    return {
+      ownVisible: document.getElementById('ownBox').style.display,
+      s3Visible: document.getElementById('s3Box').style.display,
+      text: document.body.innerText,
+    };
+  })()`);
+  step(s3Mode.ownVisible === 'none' && s3Mode.s3Visible === 'block',
+    'в режиме S3 своя коробка открыта, а свой сервер спрятан',
+    s3Mode.ownVisible + '/' + s3Mode.s3Visible);
+  step(s3Mode.text.includes('anonymous readers'),
+    'подсказка S3 объясняет про публичный бакет', '');
+
+  // Поля заполняются так же, как адрес своего сервера: по одному, на change.
+  await run(`(function () {
+    var fields = {
+      s3Endpoint: 'https://s3.example.com',
+      s3Bucket: 'puuush',
+      s3Access: 'key-id',
+      s3Secret: 'secret',
+      s3PublicBase: 'https://cdn.example.com/puuush',
+    };
+    for (var id in fields) {
+      var el = document.getElementById(id);
+      el.value = fields[id];
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  })()`);
+  await new Promise((r) => setTimeout(r, 800));
+  const s3Saved = store.getSettings();
+  step(
+    s3Saved.host === 's3' &&
+      s3Saved.s3.endpoint === 'https://s3.example.com' &&
+      s3Saved.s3.bucket === 'puuush' &&
+      s3Saved.s3.access_key === 'key-id' &&
+      s3Saved.s3.secret_key === 'secret' &&
+      s3Saved.s3.public_base === 'https://cdn.example.com/puuush',
+    'поля S3 записаны на диск целиком',
+    JSON.stringify(s3Saved.s3)
+  );
+  step(
+    (await run(`document.body.innerText`)).includes('the upload will not happen'),
+    'в режиме S3 подсказка обещает приватность, а не внешний хостинг', ''
+  );
   await run(`(function () {
     var host = document.getElementById('host');
     host.value = 'auto';

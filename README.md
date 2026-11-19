@@ -73,6 +73,11 @@ the build produced.
   own domain. Without one it goes to a cloud host, and the interface says
   which one served the last link. Several cloud hosts are built in, and the
   speed test picks the quickest from where you are.
+- **Or bring your own bucket.** S3 and MinIO are first-class targets: the
+  access and secret keys stay on this machine (only the request signature
+  travels), the file goes into a public bucket with its real content type,
+  and the link opens as a picture in the browser. In the auto mode the bucket
+  is tried after the own server and before any public host.
 - **Refuse a file that is too large.** Anything over 64 MiB is rejected before
   it leaves the machine. A screen recording is allowed up to four gigabytes,
   and it is sent as a stream: the file never sits in memory in one piece.
@@ -138,12 +143,14 @@ The capture uses Electron's `desktopCapturer` and measures the bitmap that
 actually arrived, so the crop is in device pixels rather than in the scaled
 coordinates the pointer reports.
 
-The upload tries the configured server first. When there is no server, or the
-server refuses the file, it falls back to the cloud hosts: x0.at, uguu,
+The upload tries the configured server first, then the configured S3/MinIO
+bucket, and falls back to the cloud hosts: x0.at, uguu,
 pomf2, catbox, then litterbox. In the settings there is a speed test that uploads a
 small file to each cloud host from this computer and puts the working ones in
 the measured order — latency differs a lot between regions, and the fastest
-host in one country is often slow in another.
+host in one country is often slow in another. The S3 link is built from the
+public address of the bucket: an empty field means the endpoint itself, which
+is how a local MinIO serves its public buckets.
 
 A file over 8 MiB is uploaded as a stream rather than being built in memory,
 and the own server writes such a file straight to the disk. The recording of a

@@ -740,3 +740,340 @@ test('параллельные загрузки не мешают друг др�
     assert.strictEqual(ids.size, 10, 'id не должны повторяться при параллельной загрузке');
   });
 });
+
+// ---------------------------------------------------------------------------
+// S3: подпись SigV4 и цель загрузки
+// ---------------------------------------------------------------------------
+
+test('SigV4 совпадает с контрольным примером из документации AWS', () => {
+  const s3 = require('../src/s3.js');
+  const h = s3.signedHeaders({
+    method: 'GET',
+    url: 'https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08',
+    region: 'us-east-1',
+    accessKey: 'AKIAIOSFODNN7EXAMPLE',
+    secretKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+    service: 'iam',
+    payloadHash: s3.sha256hex(''),
+    contentType: 'application/x-www-form-urlencoded; charset=utf-8',
+    date: new Date('2015-08-30T12:36:00Z'),
+  });
+  // Подпись сверяется с примером целиком: она ломается целиком, если
+  // ошибиться в любом звене канонической формы.
+  assert.strictEqual(
+    h.Authorization,
+    'AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20150830/us-east-1/iam/aws4_request, ' +
+      'SignedHeaders=content-type;host;x-amz-date, ' +
+      'Signature=5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7'
+  );
+});
+
+test('SigV4 для S3 несёт хеш тела и меняется вместе с ним', () => {
+  const s3 = require('../src/s3.js');
+  const common = {
+    method: 'PUT',
+    url: 'https://s3.example.com/mybucket/2026-11/abcd-screen.png',
+    region: 'eu-central-003',
+    accessKey: 'AKIAIOSFODNN7EXAMPLE',
+    secretKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+  };
+  const first = s3.signedHeaders({ ...common, payloadHash: s3.sha256hex('one'), contentType: 'image/png' });
+  const second = s3.signedHeaders({ ...common, payloadHash: s3.sha256hex('two'), contentType: 'image/png' });
+  assert.match(first.Authorization, /^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\/\d{8}\/eu-central-003\/s3\/aws4_request, /);
+  // S3 без подписанного хеша тела запрос не принимает: он обязателен.
+  assert.strictEqual(first['x-amz-content-sha256'], s3.sha256hex('one'));
+  assert.notStrictEqual(first.Authorization, second.Authorization, 'подпись зависит от тела');
+  assert.strictEqual(first['Content-Type'], 'image/png');
+  assert.strictEqual(first.Host, 's3.example.com');
+});
+
+test('objectKey: дата, случайный хвост и безопасное имя', () => {
+  const s3 = require('../src/s3.js');
+  const fixed = new Date('2026-11-19T10:00:00Z');
+  const a = s3.objectKey(upload.safeName('screen.png'), { now: fixed, rand: 'cafebabe' });
+  assert.strictEqual(a, `2026-11/cafebabe-${upload.safeName('screen.png')}`);
+  // Два вызова без rand не совпадают: одинаковые имена не перезаписывают друг друга.
+  const one = s3.objectKey(upload.safeName('screen.png'), { now: fixed });
+  const two = s3.objectKey(upload.safeName('screen.png'), { now: fixed });
+  assert.notStrictEqual(one, two);
+  assert.match(one, /^2026-11\/[0-9a-f]{8}-screen-[0-9a-f]{6}\.png$/);
+  assert.strictEqual(s3.publicUrl('https://cdn.example.com/bucket/', one), `https://cdn.example.com/bucket/${one}`);
+});
+
+test('contentTypeFor решает, откроется ли ссылка картинкой', () => {
+  const s3 = require('../src/s3.js');
+  assert.strictEqual(s3.contentTypeFor('shot.png'), 'image/png');
+  assert.strictEqual(s3.contentTypeFor('record.webm'), 'video/webm');
+  assert.strictEqual(s3.contentTypeFor('noext'), 'application/octet-stream');
+});
+
+test('validateS3: http разрешён только дома', () => {
+  assert.strictEqual(upload.validateS3({
+    endpoint: 'http://192.168.1.5:9000',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  }), '', 'MinIO в домашней сети без TLS — нормальная жизнь');
+  assert.strictEqual(upload.validateS3({
+    endpoint: 'http://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  }), t('s3.needHttps'));
+  assert.strictEqual(upload.validateS3({}), t('s3.notFilled'));
+  assert.strictEqual(upload.validateS3({
+    endpoint: 'https://s3.example.com',
+    bucket: 'pub/lic',
+    access_key: 'a',
+    secret_key: 'b',
+  }), t('s3.badBucket'));
+  assert.strictEqual(upload.validateS3({
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+    public_base: 'не адрес',
+  }), t('s3.publicUnreadable'));
+});
+
+test('uploadS3 кладёт файл PUT-ом с подписью и отдаёт публичную ссылку', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'Снимок экрана.png');
+  fs.writeFileSync(file, FILE);
+  const cfg = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    region: 'eu-central-003',
+    access_key: 'AKIAIOSFODNN7EXAMPLE',
+    secret_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+    public_base: 'https://cdn.example.com/puuush',
+  };
+  let seenPut = null;
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    if (opts.method === 'PUT') {
+      seenPut = { url, headers: opts.headers, body: opts.body };
+      return { status: 200, headers: { etag: 'x' }, body: Buffer.alloc(0) };
+    }
+    // Проверка ссылки: публичный адрес отдаёт те же первые байты.
+    assert.match(url, /^https:\/\/cdn\.example\.com\/puuush\/\d{4}-\d\d\//);
+    return { status: 200, headers: {}, body: FILE };
+  });
+  try {
+    const r = await upload.uploadS3(cfg, file, () => {});
+    assert.strictEqual(r.host, 's3');
+    assert.strictEqual(r.temp, false, 'ссылка на свой бакет не временная');
+    // Ключи не попадают в URL: в адресе только бакет и ключ объекта.
+    assert.doesNotMatch(seenPut.url, /AKIA|wJalrXUtn/i);
+    assert.match(seenPut.url, /^https:\/\/s3\.example\.com\/puuush\//);
+    assert.match(seenPut.headers.Authorization, /^AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE\//);
+    // Кириллица в имени не доезжает до бакета: ссылка останется латиницей.
+    assert.match(seenPut.url, /file-[0-9a-f]{6}\.png$/);
+    assert.strictEqual(seenPut.headers['Content-Type'], 'image/png');
+    // Тело меньше порога подписано настоящим хешем, а не UNSIGNED-PAYLOAD.
+    assert.strictEqual(
+      seenPut.headers['x-amz-content-sha256'],
+      crypto.createHash('sha256').update(FILE).digest('hex')
+    );
+    assert.ok(r.url.startsWith('https://cdn.example.com/puuush/'), r.url);
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('uploadS3 без настройки отказывает с причиной, а не молчит', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, FILE);
+  try {
+    await assert.rejects(() => upload.uploadS3({ endpoint: '', bucket: '', access_key: '', secret_key: '' }, file, () => {}),
+      says('upload.s3Invalid', { detail: t('s3.notFilled') }));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('uploadS3 объясняет отказ бакета его собственным XML', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, FILE);
+  const cfg = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  };
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    if (opts.method === 'PUT') {
+      return {
+        status: 403,
+        headers: {},
+        body: Buffer.from('<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>'),
+      };
+    }
+    throw new Error('незапланированный запрос: ' + url);
+  });
+  try {
+    await assert.rejects(
+      () => upload.uploadS3(cfg, file, () => {}),
+      (e) => e.s3Server === true && /AccessDenied/.test(e.message) && /Access Denied/.test(e.message)
+    );
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('режим «только S3» не уводит файл в публичный интернет', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, FILE);
+  const cfg = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  };
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    if (opts.method === 'PUT') return { status: 500, headers: {}, body: Buffer.from('бум') };
+    throw new Error('незапланированный запрос: ' + url);
+  });
+  const origHosts = upload.__setHostsForTests([
+    { name: 'cloud', url: 'https://cloud/u', fields: {}, fileField: 'file', temp: true },
+  ]);
+  try {
+    // Хостинг настроен как запасной, но режим «только S3» не имеет права
+    // уводить файл на него молча.
+    await assert.rejects(() => upload.publish(file, { host: 's3', s3: cfg, own: null, order: [] }));
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    upload.__restoreHostsForTests(origHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('авторежим: S3 стоит перед публичными хостингами', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, FILE);
+  const cfg = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  };
+  const asked = [];
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    asked.push(opts.method === 'PUT' ? 'put' : 'get');
+    if (opts.method === 'PUT') return { status: 200, headers: {}, body: Buffer.alloc(0) };
+    return { status: 200, headers: {}, body: FILE };
+  });
+  const origHosts = upload.__setHostsForTests([
+    { name: 'cloud', url: 'https://cloud/u', fields: {}, fileField: 'file', temp: true },
+  ]);
+  try {
+    const r = await upload.publish(file, { host: 'auto', s3: cfg, own: null, order: [] });
+    assert.strictEqual(r.host, 's3');
+    // Публичный хостинг не должен быть даже попробован.
+    assert.deepStrictEqual(asked, ['put', 'get']);
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    upload.__restoreHostsForTests(origHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('авторежим: сбой S3 уводит на публичный хостинг и помечает понижение', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, FILE);
+  const cfg = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  };
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    if (opts.method === 'PUT') return { status: 500, headers: {}, body: Buffer.from('бум') };
+    if (url === 'https://ok/1') return { status: 200, headers: {}, body: FILE };
+    const j = (u) => Buffer.from(JSON.stringify({ files: [{ url: u }] }));
+    if (url.includes('cloud')) return { status: 200, headers: {}, body: j('https://ok/1') };
+    throw new Error('незапланированный запрос: ' + url);
+  });
+  const origHosts = upload.__setHostsForTests([
+    { name: 'cloud', url: 'https://cloud/u', fields: {}, fileField: 'file', temp: true, json: 'files.0.url' },
+  ]);
+  try {
+    const r = await upload.publish(file, { host: 'auto', s3: cfg, own: null, order: [] });
+    assert.strictEqual(r.host, 'cloud');
+    assert.ok(r.s3Failed, 'причина сбоя S3 должна уехать наружу');
+    // Понижение приватности видно по факту, а не по совпадению в тексте.
+    assert.ok(!(r.ownFailed), 'свой сервер не при чём');
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    upload.__restoreHostsForTests(origHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('авторежим: сбой своего сервера не понижает приватность, если работает S3', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  const file = path.join(dir, 'a.png');
+  fs.writeFileSync(file, FILE);
+  const s3 = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  };
+  const own = { base_url: 'https://own.example.com', write_key: 'k' };
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    if (url.startsWith('https://own.example.com')) {
+      return { status: 500, headers: {}, body: Buffer.from('бум') };
+    }
+    if (opts.method === 'PUT') return { status: 200, headers: {}, body: Buffer.alloc(0) };
+    return { status: 200, headers: {}, body: FILE };
+  });
+  const origHosts = upload.__setHostsForTests([]);
+  try {
+    const r = await upload.publish(file, { host: 'auto', s3, own, order: [] });
+    assert.strictEqual(r.host, 's3');
+    assert.ok(r.ownFailed, 'сбой своего сервера виден в результате');
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    upload.__restoreHostsForTests(origHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('проверка скорости измеряет и S3, если он настроен', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-s3-'));
+  // Файл создаёт сама speedTest, но результат должен содержать S3.
+  const cfg = {
+    endpoint: 'https://s3.example.com',
+    bucket: 'puuush',
+    access_key: 'a',
+    secret_key: 'b',
+  };
+  let putBody = null;
+  const origRequest = upload.__setRequestForTests(async (url, opts = {}) => {
+    // GET должен отдать те же байты, что ушли PUT-ом: проверка ссылки
+    // сверяет первые байты с файлом на диске.
+    if (opts.method === 'PUT') {
+      putBody = opts.body;
+      return { status: 200, headers: {}, body: Buffer.alloc(0) };
+    }
+    return { status: 200, headers: {}, body: putBody || Buffer.alloc(64 * 1024) };
+  });
+  const origHosts = upload.__setHostsForTests([]);
+  try {
+    const results = await upload.speedTest({ s3: cfg, order: [] });
+    const s3res = results.find((x) => x.name === 's3');
+    assert.ok(s3res, 'S3 должен быть в списке измерений');
+    assert.strictEqual(s3res.ok, true);
+  } finally {
+    upload.__restoreRequestForTests(origRequest);
+    upload.__restoreHostsForTests(origHosts);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

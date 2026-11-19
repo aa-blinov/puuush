@@ -75,6 +75,14 @@
   let ownUrl = '';
   let ownKey = '';
   let keyVisible = false;
+  /** Поля S3/MinIO. Пустой публичный адрес значит «endpoint вместе с бакетом». */
+  let s3Endpoint = '';
+  let s3Bucket = '';
+  let s3Region = '';
+  let s3Access = '';
+  let s3Secret = '';
+  let s3PublicBase = '';
+  let s3KeyVisible = false;
   let saveDir = '';
   let openAfterUpload = false;
   let keepLocalCopy = true;
@@ -104,7 +112,10 @@
   $: ownVisible = host === 'own' || host === 'auto';
   $: if (typeof document !== 'undefined') document.title = $t('tray.settingsTitle');
   $: ownReady = Boolean(ownUrl.trim() && ownKey.trim());
-  $: nextTarget = describeNextTarget(host, ownReady, hosts, $t);
+  // S3 и свой сервер — равноправные приватные цели: обе показываются в авто.
+  $: s3Visible = host === 's3' || host === 'auto';
+  $: s3Ready = Boolean(s3Endpoint.trim() && s3Bucket.trim() && s3Access.trim() && s3Secret.trim());
+  $: nextTarget = describeNextTarget(host, ownReady, s3Ready, hosts, $t);
   $: stateTag = describeStateTag(status.kind, $t);
   $: hostOptions = buildHostOptions(hosts, $t, settings.hostOrder);
   $: screenOptions = buildScreenOptions(displays, $t, recordScreen);
@@ -225,6 +236,7 @@
           : tr(`host.${h.name}`),
       })),
       { value: 'own', label: tr('ui.hostOwnOnly') },
+      { value: 's3', label: tr('ui.hostS3Only') },
     ];
   }
 
@@ -274,18 +286,26 @@
    * чистой установке это была ложь ровно в том месте, где продукт обещает
    * человеку приватность.
    */
-  function describeNextTarget(currentHost, ready, list, tr) {
+  function describeNextTarget(currentHost, ownIsReady, s3IsReady, list, tr) {
     if (currentHost === 'own') {
       return {
-        text: ready ? tr('ui.next.ownReady') : tr('ui.next.ownMissing'),
+        text: ownIsReady ? tr('ui.next.ownReady') : tr('ui.next.ownMissing'),
+        warn: false,
+      };
+    }
+    if (currentHost === 's3') {
+      return {
+        text: s3IsReady ? tr('ui.next.s3Ready') : tr('ui.next.s3Missing'),
         warn: false,
       };
     }
     if (currentHost === 'auto') {
-      return {
-        text: ready ? tr('ui.next.autoReady') : tr('ui.next.autoMissing'),
-        warn: !ready,
-      };
+      // Авто пробует приватные цели по очереди, и человек должен видеть,
+      // какая из них сегодня первая: иначе обещание адреса не совпадёт
+      // с тем, куда файл уйдёт на самом деле.
+      if (ownIsReady) return { text: tr('ui.next.autoReady'), warn: false };
+      if (s3IsReady) return { text: tr('ui.next.autoS3Ready'), warn: false };
+      return { text: tr('ui.next.autoMissing'), warn: true };
     }
     const option = list.find((item) => item.name === currentHost);
     const name = option ? tr(`host.${option.name}`) : tr('ui.status.host');
@@ -331,6 +351,12 @@
     host = next.host;
     ownUrl = (next.own && next.own.base_url) || '';
     ownKey = (next.own && next.own.write_key) || '';
+    s3Endpoint = (next.s3 && next.s3.endpoint) || '';
+    s3Bucket = (next.s3 && next.s3.bucket) || '';
+    s3Region = (next.s3 && next.s3.region) || '';
+    s3Access = (next.s3 && next.s3.access_key) || '';
+    s3Secret = (next.s3 && next.s3.secret_key) || '';
+    s3PublicBase = (next.s3 && next.s3.public_base) || '';
     openAfterUpload = !!next.openAfterUpload;
     keepLocalCopy = next.keepLocalCopy !== false;
     launchAtLogin = !!next.launchAtLogin;
@@ -493,6 +519,31 @@
 
   function toggleKeyVisibility() {
     keyVisible = !keyVisible;
+  }
+
+  /**
+   * Поля S3 пишутся по одному обработчику: ид поля из разметки превращается
+   * в имя настройки по табличке, и имя не может разойтись со схемой — store
+   * не примет ключа, которого в схеме нет.
+   */
+  async function onS3Change(event) {
+    const source = event && event.detail && event.detail.target ? event.detail : event;
+    const id = source && source.target ? source.target.id : '';
+    const byId = {
+      s3Endpoint: 'endpoint',
+      s3Bucket: 'bucket',
+      s3Region: 'region',
+      s3Access: 'access_key',
+      s3Secret: 'secret_key',
+      s3PublicBase: 'public_base',
+    };
+    const name = byId[id];
+    if (!name) return;
+    await save({ s3: { [name]: fieldValue(event, '') } });
+  }
+
+  function toggleS3KeyVisibility() {
+    s3KeyVisible = !s3KeyVisible;
   }
 
   /**
@@ -1070,6 +1121,74 @@
         <p class="text-xs leading-relaxed text-ink-soft">
           {$t(host === 'own' ? 'ui.hint.keyOwn' : 'ui.hint.key', { method: 'POST /v1/uploads' })}
         </p>
+      </div>
+
+      <div id="s3Box" class="space-y-comfortable" style:display={s3Visible ? 'block' : 'none'}>
+        <TextField
+          id="s3Endpoint"
+          label={$t('ui.field.s3Endpoint')}
+          placeholder={$t('ui.field.s3EndpointPlaceholder')}
+          bind:value={s3Endpoint}
+          spellcheck="false"
+          on:change={onS3Change}
+        />
+
+        <TextField
+          id="s3Bucket"
+          label={$t('ui.field.s3Bucket')}
+          bind:value={s3Bucket}
+          spellcheck="false"
+          on:change={onS3Change}
+        />
+
+        <TextField
+          id="s3Region"
+          label={$t('ui.field.s3Region')}
+          placeholder={$t('ui.field.s3RegionPlaceholder')}
+          bind:value={s3Region}
+          spellcheck="false"
+          on:change={onS3Change}
+        />
+
+        <TextField
+          id="s3Access"
+          label={$t('ui.field.s3AccessKey')}
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={s3Access}
+          on:change={onS3Change}
+        />
+
+        <TextField
+          id="s3Secret"
+          label={$t('ui.field.s3SecretKey')}
+          type={s3KeyVisible ? 'text' : 'password'}
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={s3Secret}
+          on:change={onS3Change}
+        />
+
+        <div class="settings-action flex justify-end">
+          <Button
+            variant="secondary"
+            aria-pressed={s3KeyVisible}
+            on:click={toggleS3KeyVisibility}
+          >
+            {s3KeyVisible ? $t('ui.button.hide') : $t('ui.button.show')}
+          </Button>
+        </div>
+
+        <TextField
+          id="s3PublicBase"
+          label={$t('ui.field.s3PublicBase')}
+          placeholder={$t('ui.field.s3PublicBasePlaceholder')}
+          bind:value={s3PublicBase}
+          spellcheck="false"
+          on:change={onS3Change}
+        />
+
+        <p class="text-xs leading-relaxed text-ink-soft">{$t('ui.hint.s3')}</p>
       </div>
     </SectionBlock>
 

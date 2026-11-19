@@ -159,7 +159,7 @@ async function runSelfTest({ registerIpc, startTray, trayImage, applyHotkeys, ho
     const probeFile = path.join(store.shotsDir(), 'selftest-upload.png');
     fs.writeFileSync(probeFile, png1px());
     try {
-      const r = await publish(probeFile, { host: s.host, own: s.own, onStep: () => {} });
+      const r = await publish(probeFile, { host: s.host, own: s.own, s3: s.s3, onStep: () => {} });
       step(true, t('selftest.upload'), `${r.url} (${hostLabel(r.host)})`);
     } finally {
       try { fs.unlinkSync(probeFile); } catch (e) { /* не мешает */ }

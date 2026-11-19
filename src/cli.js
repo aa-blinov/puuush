@@ -32,6 +32,7 @@ function runCli(argv) {
         const r = await publish(path.resolve(f), {
           host: s.host,
           own: s.own,
+          s3: s.s3,
           order: s.hostOrder,
           onStep: (m) => process.stderr.write(`  ${m}\n`),
         });

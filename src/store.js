@@ -10,7 +10,7 @@ const path = require('node:path');
 const { app } = require('electron');
 
 const HISTORY_LIMIT = 30;
-const HOST_NAMES = ['auto', 'own', 'catbox', 'litterbox', 'x0', 'uguu', 'pomf2'];
+const HOST_NAMES = ['auto', 'own', 's3', 'catbox', 'litterbox', 'x0', 'uguu', 'pomf2'];
 const RECORD_TARGETS = ['cloud', 'disk', 'both'];
 const PHOTO_MODES = ['link', 'clipboard'];
 const VIDEO_MODES = ['link', 'clipboard', 'disk'];
@@ -23,11 +23,21 @@ const DEFAULTS = {
   hotkey: 'CommandOrControl+Shift+S',
   imageHotkey: 'CommandOrControl+Alt+S', // картинка в буфер, без загрузки
   recordHotkey: 'CommandOrControl+Shift+R', // запись экрана со звуком
-  host: 'auto', // auto | own | catbox | litterbox | x0 | uguu | pomf2
+  host: 'auto', // auto | own | s3 | catbox | litterbox | x0 | uguu | pomf2
   // Порядок облачных хостингов, измеренный на этой машине. Пусто — порядок
   // по умолчанию. Регион меняет задержку, поэтому порядок не зашит.
   hostOrder: [],
   own: { base_url: '', write_key: '' },
+  // S3/MinIO: публичный адрес бакета, из которого строится ссылка. Пусто —
+  // сам endpoint с бакетом: локальный MinIO раздаёт файлы оттуда же.
+  s3: {
+    endpoint: '',
+    bucket: '',
+    region: 'us-east-1',
+    access_key: '',
+    secret_key: '',
+    public_base: '',
+  },
   openAfterUpload: false,
   keepLocalCopy: true,
   saveDir: '', // пусто -> Pictures/puuush
@@ -173,6 +183,7 @@ function getSettings() {
   const saved = readJson('settings.json', {}, validSettings);
   const merged = { ...DEFAULTS, ...saved };
   merged.own = { ...DEFAULTS.own, ...(saved.own || {}) };
+  merged.s3 = { ...DEFAULTS.s3, ...(saved.s3 || {}) };
   if (!HOST_NAMES.includes(merged.host)) merged.host = 'auto';
   if (!RECORD_TARGETS.includes(merged.recordTarget)) merged.recordTarget = DEFAULTS.recordTarget;
   // Перенос: раньше «куда девать запись» лежало в recordTarget.
@@ -212,6 +223,7 @@ function setSettings(patch) {
   const current = getSettings();
   const next = { ...current, ...patch };
   if (patch.own) next.own = { ...current.own, ...patch.own };
+  if (patch.s3) next.s3 = { ...current.s3, ...patch.s3 };
   checkHotkeys(next);
   if (!writeJson('settings.json', next)) {
     throw new Error(t('store.cannotWrite'));
@@ -230,6 +242,7 @@ const SETTING_TYPES = {
   videoMode: 'string', photoMode: 'string', recordArea: 'string',
   recordFormat: 'string', recordFps: 'number',
   own: 'object',
+  s3: 'object',
 };
 
 /**

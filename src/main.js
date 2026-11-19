@@ -228,7 +228,9 @@ function uploadAndDeliver(filePath, opts = {}) {
 }
 
 async function doUploadAndDeliver(filePath, { source = t('ui.field.snapshot'), maxBytes = 0 } = {}) {
-  let ownFailed = null;
+  // Сбой приватных целей: своего сервера или S3. По нему главный процесс
+  // узнаёт, что файл уехал в публичный интернет, если уехал.
+  let privFailed = null;
   beginUpload();
   try {
     // Сначала читаем настройки, потом смотрим на ошибку. Порядок был наоборот,
@@ -243,23 +245,25 @@ async function doUploadAndDeliver(filePath, { source = t('ui.field.snapshot'), m
     const r = await publish(filePath, {
       host: s.host,
       own: s.own,
+      s3: s.s3,
       order: s.hostOrder,
       // Запись встречи весит сотни мегабайт, и потолок публичных хостингов
       // тут неприменим: свой сервер примет столько, сколько настроен.
       ...(maxBytes ? { maxBytes } : {}),
-      // Сбой своего сервера главный процесс узнаёт из результата publish(),
+      // Сбой приватных целей главный процесс узнаёт из результата publish(),
       // а не из текста шага: текст переводится, и совпадение перестало бы
       // работать. Здесь шаг только показывается человеку.
       onStep: (m) => broadcast('puuush:progress', { state: 'step', message: m }),
     });
 
-    // Свой сервер мог отказать: publish() знает это по факту, а не по тексту.
-    ownFailed = r.ownFailed || null;
+    // Свой сервер или S3 могли отказать: publish() знает это по факту,
+    // а не по тексту.
+    privFailed = r.ownFailed || r.s3Failed || null;
 
     // Понижение приватности должно быть заметно. Иначе режим «авто» тихо
     // отправляет скриншот в публичный интернет, и человек об этом не знает.
-    if (ownFailed && r.host !== 'own') {
-      const msg = t('note.privacyDowngraded', { reason: ownFailed, host: r.host });
+    if (privFailed && r.host !== 'own' && r.host !== 's3') {
+      const msg = t('note.privacyDowngraded', { reason: privFailed, host: r.host });
       noteError(msg);
       notify('puuush', msg);
     } else {
@@ -288,7 +292,7 @@ async function doUploadAndDeliver(filePath, { source = t('ui.field.snapshot'), m
       host: r.host,
       temp: r.temp,
       copied,
-      privacyDowngraded: !!(ownFailed && r.host !== 'own'),
+      privacyDowngraded: !!(privFailed && r.host !== 'own' && r.host !== 's3'),
       localUrl: local ? local.url : null,
     });
     if (s.openAfterUpload) shell.openExternal(r.url);
@@ -297,7 +301,7 @@ async function doUploadAndDeliver(filePath, { source = t('ui.field.snapshot'), m
     // даже после системного диалога «буфер занят».
     return {
       url: r.url, host: r.host, temp: !!r.temp, size: r.size,
-      copied, privacyDowngraded: !!(ownFailed && r.host !== 'own'),
+      copied, privacyDowngraded: !!(privFailed && r.host !== 'own' && r.host !== 's3'),
       localUrl: local ? local.url : null,
     };
   } catch (e) {
@@ -1263,7 +1267,7 @@ function registerIpc() {
   handle('puuush:test-hosts', async () => {
     const s = store.getSettings();
     broadcast('puuush:progress', { state: 'step', message: t('speed.testing') });
-    const results = await upload.speedTest({ own: s.own, order: s.hostOrder });
+    const results = await upload.speedTest({ own: s.own, s3: s.s3, order: s.hostOrder });
     const fast = results
       .filter((r) => r.ok && r.name !== 'own')
       .sort((a, b) => a.ms - b.ms)

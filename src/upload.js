@@ -20,6 +20,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { isIP } = require('node:net');
 const { t } = require('./i18n');
+const s3 = require('./s3');
 
 // Браузерный заголовок обязателен: без него catbox отвечает отказом на запрос,
 // который не похож на браузерный, и ссылка выглядит битой.
@@ -341,6 +342,16 @@ function realRequest(url, { method = 'GET', headers = {}, body = null, timeout =
 const STREAM_THRESHOLD = 8 * 1024 * 1024;
 
 /**
+ * Предел времени для потока считается по размеру: запись встречи на гигабайт
+ * по домашнему каналу льётся дольше десяти минут, и общий десятиминутный
+ * предел рвал бы её на середине. Расчёт — примерно 1,5 секунды на мегабайт,
+ * но не меньше десяти минут и не больше двух часов.
+ */
+function streamTimeoutFor(size) {
+  return Math.min(2 * 60 * 60 * 1000, Math.max(10 * 60 * 1000, Math.ceil(size / MB) * 1500));
+}
+
+/**
  * Запрос с телом, уходящим потоком с диска.
  *
  * Тело multipart состоит из трёх частей: голова, файл и хвост. Длина известна
@@ -431,15 +442,7 @@ function postFile(url, { headers = {}, fields = {}, fileField = 'file', filePath
     });
   }
   const { head, tail, length, contentType } = multipartParts(fields, fileField, filePath, filename);
-  // Предел времени для потока считается по размеру: запись встречи на
-  // гигабайт по домашнему каналу льётся дольше десяти минут, и общий
-  // десятиминутный предел рвал бы её на середине. Расчёт — примерно
-  // 1,5 секунды на мегабайт, но не меньше десяти минут и не больше двух
-  // часов.
-  const streamTimeout = Math.min(
-    2 * 60 * 60 * 1000,
-    Math.max(10 * 60 * 1000, Math.ceil(size / MB) * 1500)
-  );
+  const streamTimeout = streamTimeoutFor(size);
   return requestStream(url, {
     method: 'POST',
     headers: { 'Content-Type': contentType, 'Content-Length': length, ...headers },
@@ -569,6 +572,177 @@ async function uploadOwn(host, filePath, onStep = () => {}) {
   }
   // Срок хранения приходит с сервера: ссылка своего сервера не вечна.
   return { url: meta.url, host: 'own', temp: false, expiresAt: meta.expires_at || null };
+}
+
+/**
+ * Приватный ли адрес: loopback или домашняя сеть.
+ *
+ * Секрет S3 не уезжает по проводу: подпись считается на этой машине, и в
+ * заголовке уезжает только она. Но пойманный по открытому http запрос можно
+ * переиграть, поэтому публичный адрес без TLS — ошибка, а MinIO в домашней
+ * сети без TLS — обычная жизнь.
+ */
+function isPrivateHost(hostname) {
+  if (isLoopback(hostname)) return true;
+  const h = String(hostname).replace(/^\[|\]$/g, '');
+  const v4 = isIP(h);
+  if (v4 === 4) {
+    const o = h.split('.').map(Number);
+    return o[0] === 10 || (o[0] === 172 && o[1] >= 16 && o[1] <= 31) || (o[0] === 192 && o[1] === 168);
+  }
+  if (v4 === 6) {
+    const low = h.toLowerCase();
+    // fc/fd — уникальные локальные адреса, fe80 — link-local.
+    return low.startsWith('fc') || low.startsWith('fd') || low.startsWith('fe80');
+  }
+  return false;
+}
+
+/**
+ * Проверяет адрес и ключи S3 до сетевого вызова.
+ *
+ * Одна и та же функция работает и в загрузке, и в проверке из окна
+ * настроек: расхождение правил означало бы зелёную галочку там, где
+ * загрузка упадёт.
+ */
+function validateS3({
+  endpoint,
+  bucket,
+  access_key: accessKey,
+  secret_key: secretKey,
+  public_base: publicBase,
+  region,
+} = {}) {
+  if (!endpoint || !bucket || !accessKey || !secretKey) return t('s3.notFilled');
+  let parsed;
+  try {
+    parsed = new URL(endpoint);
+  } catch (e) {
+    return t('s3.unreadable');
+  }
+  if (!/^https?:$/i.test(parsed.protocol)) return t('s3.notHttp');
+  // Ключи не летят по проводу, но открытый адрес позволяет переиграть
+  // перехваченный запрос: TLS обязателен везде, кроме домашних сетей.
+  if (!/^https:$/i.test(parsed.protocol) && !isPrivateHost(parsed.hostname)) {
+    return t('s3.needHttps');
+  }
+  // Имя бакета — часть адреса: слэш или пробел ломали бы URL целиком.
+  if (/\//.test(bucket) || /\s/.test(bucket)) return t('s3.badBucket');
+  if (/[^\x21-\x7e]/.test(accessKey) || /[^\x21-\x7e]/.test(secretKey)) {
+    return t('s3.keyNotAscii');
+  }
+  if (region && /[^\x21-\x7e]/.test(region)) return t('s3.keyNotAscii');
+  if (publicBase) {
+    try {
+      if (!/^https?:$/i.test(new URL(publicBase).protocol)) return t('s3.notHttp');
+    } catch (e) {
+      return t('s3.publicUnreadable');
+    }
+  }
+  return '';
+}
+
+/**
+ * Ошибка S3.
+ *
+ * Помечена, как ошибка своего сервера: главный процесс различает сбой
+ * приватной цели и сбой публичного хостинга по факту, а не по тексту.
+ */
+function s3Error(message) {
+  const err = new Error(message);
+  err.s3Server = true;
+  return err;
+}
+
+/** Причина из XML ошибки S3: код и сообщение читаемее обрывка разметки. */
+function s3ErrorDetail(res) {
+  const text = res.body.toString('utf8').slice(0, 200);
+  const code = /<Code>([^<]+)<\/Code>/.exec(text);
+  const msg = /<Message>([^<]*)<\/Message>/.exec(text);
+  if (code || msg) {
+    return `${code ? code[1] : ''}${code && msg ? ': ' : ''}${msg ? msg[1] : ''}`;
+  }
+  return text;
+}
+
+/** Заполнены ли ключевые поля S3: без них цель не кандидат ни в каком режиме. */
+function s3Configured(cfg) {
+  return !!(cfg && cfg.endpoint && cfg.bucket && cfg.access_key && cfg.secret_key);
+}
+
+/**
+ * Загрузка в S3/MinIO: PUT объекта с подписью SigV4.
+ *
+ * Ссылка строится из публичного адреса бакета, а не из адреса API: перед
+ * бакетом обычно стоит Caddy или CDN, и картинка открывается прямо в
+ * браузере, потому что Content-Type ставится по расширению. Бакет обязан
+ * отдавать файлы анонимно: приватный бакет примет загрузку и не откроет
+ * ссылку, и это будет видно по проверке ссылки ниже.
+ */
+async function uploadS3(cfg, filePath, onStep = () => {}) {
+  const why = validateS3(cfg);
+  if (why) throw s3Error(t('upload.s3Invalid', { detail: why }));
+  const region = cfg.region || 'us-east-1';
+  const endpoint = String(cfg.endpoint).replace(/\/+$/, '');
+  // Ключ объекта: датированная папка и случайный хвост поверх безопасного
+  // имени — два снимка с одинаковым именем не перезаписывают друг друга.
+  const key = s3.objectKey(safeName(path.basename(filePath)));
+  const url = `${endpoint}/${cfg.bucket}/${key}`;
+  // Публичный адрес по умолчанию — сам endpoint с бакетом: локальный MinIO
+  // раздаёт файлы с того же адреса, куда их кладёт.
+  const base = cfg.public_base || `${endpoint}/${cfg.bucket}`;
+  const link = s3.publicUrl(base, key);
+  const type = s3.contentTypeFor(filePath);
+  const size = fs.statSync(filePath).size;
+
+  const sign = (payloadHash) =>
+    s3.signedHeaders({
+      method: 'PUT',
+      url,
+      region,
+      accessKey: cfg.access_key,
+      secretKey: cfg.secret_key,
+      payloadHash,
+      contentType: type,
+    });
+
+  onStep(t('upload.s3Uploading'));
+  let res;
+  if (size <= STREAM_THRESHOLD) {
+    const body = fs.readFileSync(filePath);
+    res = await request(url, {
+      method: 'PUT',
+      // Тело лежит в памяти целиком, и его хеш считается прямо: подпись
+      // закрывает и содержимое тоже.
+      headers: {
+        ...sign(crypto.createHash('sha256').update(body).digest('hex')),
+        'Content-Length': body.length,
+      },
+      body,
+      timeout: 600000,
+    });
+  } else {
+    // Хеш тела, которое не читается целиком, посчитать нельзя: S3 разрешает
+    // подписать запрос как UNSIGNED-PAYLOAD, и большой файл уходит потоком
+    // с диска, как и на свой сервер.
+    res = await requestStream(url, {
+      method: 'PUT',
+      headers: { ...sign('UNSIGNED-PAYLOAD'), 'Content-Length': size },
+      filePath,
+      timeout: streamTimeoutFor(size),
+    });
+  }
+  if (res.status !== 200) {
+    throw s3Error(t('upload.s3Http', { status: res.status, detail: s3ErrorDetail(res) }));
+  }
+
+  onStep(t('upload.s3Checking'));
+  // Бакет публичен или нет — узнаёт только эта проверка: загрузка в
+  // приватный бакет проходит, а ссылка из него не открывается.
+  if (!(await verify(link, size, filePath))) {
+    throw s3Error(t('upload.s3NoFile'));
+  }
+  return { url: link, host: 's3', temp: false, expiresAt: null };
 }
 
 /** Загрузка на один хостинг. */
@@ -732,11 +906,11 @@ function safeName(p) {
  * него, и выбирает сам. Список сортируется по времени, а порядок
  * сохраняется: в режиме «авто» быстрые хостинги пробуются первыми.
  *
- * Проверяется и свой сервер, если он настроен.
+ * Проверяется и свой сервер, и S3, если они настроены.
  *
  * @returns {Promise<Array<{name:string, ms:number, ok:boolean, error?:string}>>}
  */
-async function speedTest({ own = null, order = null } = {}) {
+async function speedTest({ own = null, s3 = null, order = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'puuush-speed-'));
   // 48 КБ — достаточно, чтобы измерить рукопожатие и первую передачу, и
   // мало, чтобы проверка не занимала полосу надолго.
@@ -774,6 +948,18 @@ async function speedTest({ own = null, order = null } = {}) {
         results.push({ name: 'own', ms: Date.now() - t0, ok: false, error: e.message });
       }
     }
+    // S3 проверяется настоящей загрузкой и настоящей проверкой ссылки:
+    // «бакет принял файл» без «ссылка открывается анонимно» означало бы
+    // зелёную строку у приватного бакета, в который ссылка не ведёт.
+    if (s3Configured(s3)) {
+      const t0 = Date.now();
+      try {
+        await uploadS3(s3, file, () => {});
+        results.push({ name: 's3', ms: Date.now() - t0, ok: true });
+      } catch (e) {
+        results.push({ name: 's3', ms: Date.now() - t0, ok: false, error: e.message });
+      }
+    }
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* уберёт система */ }
   }
@@ -785,16 +971,18 @@ async function speedTest({ own = null, order = null } = {}) {
  *
  * @param {string} filePath путь к файлу
  * @param {object} opts
- * @param {string} [opts.host] 'auto' | 'catbox' | 'pomf2' | 'uguu' | 'own'
+ * @param {string} [opts.host] 'auto' | 'catbox' | 'pomf2' | 'uguu' | 'own' | 's3'
  * @param {object} [opts.own] { base_url, write_key }
+ * @param {object} [opts.s3] { endpoint, bucket, region, access_key, secret_key, public_base }
  * @param {(msg:string)=>void} [opts.onStep]
  * @returns {Promise<{url:string, host:string, temp:boolean, size:number}>}
  */
 async function publish(filePath, opts = {}) {
-  const { host = 'auto', own = null, onStep = () => {}, maxBytes = 0, order = null } = opts;
-  // Причина сбоя своего сервера: по ней главный процесс предупреждает, что
+  const { host = 'auto', own = null, s3 = null, onStep = () => {}, maxBytes = 0, order = null } = opts;
+  // Причина сбоя приватных целей: по ней главный процесс предупреждает, что
   // файл ушёл в публичный интернет.
   let ownFailed = null;
+  let s3Failed = null;
   if (!fs.existsSync(filePath)) throw new Error(t('upload.noFile', { path: filePath }));
   const st = fs.statSync(filePath);
   // Папка проходит existsSync и падала бы сырым EISDIR на каждом хостинге.
@@ -827,22 +1015,42 @@ async function publish(filePath, opts = {}) {
     throw ownError(t('upload.ownNoLink'));
   }
 
+  if (host === 's3') {
+    // Режим «только S3»: сбой бакета не должен тихо уводить файл в
+    // публичный интернет, как не уводит его и сбой своего сервера.
+    if (!s3Configured(s3)) throw s3Error(t('upload.s3NeedsSetup'));
+    const r = await uploadS3(s3, filePath, onStep);
+    return { ...r, size };
+  }
+
   let chain = orderedHosts(order);
   const single = host !== 'auto';
   if (single) {
     chain = HOSTS.filter((h) => h.name === host);
     if (!chain.length) throw new Error(t('upload.unknownHost', { host }));
-  } else if (own && own.base_url && own.write_key) {
-    // В авторежиме свой box не имеет права обрывать цепочку: любой его сбой —
-    // неверный ключ, битый сервер, опечатка в адресе — должен молча уводить
-    // на внешний хостинг, а не ронять всю загрузку.
-    onStep(t('upload.tryingOwn'));
-    try {
-      const r = await uploadOwn(own, filePath, onStep);
-      if (r) return { ...r, size, ownFailed: null };
-    } catch (e) {
-      ownFailed = e.message;
-      onStep(t('upload.ownFailed', { error: e.message }));
+  } else {
+    // В авторежиме приватные цели не имеют права обрывать цепочку: любой их
+    // сбой — неверный ключ, битый сервер, опечатка в адресе — должен молча
+    // уводить на следующую цель, а не ронять всю загрузку.
+    if (own && own.base_url && own.write_key) {
+      onStep(t('upload.tryingOwn'));
+      try {
+        const r = await uploadOwn(own, filePath, onStep);
+        if (r) return { ...r, size, s3Failed: null };
+      } catch (e) {
+        ownFailed = e.message;
+        onStep(t('upload.ownFailed', { error: e.message }));
+      }
+    }
+    if (s3Configured(s3)) {
+      onStep(t('upload.tryingS3'));
+      try {
+        const r = await uploadS3(s3, filePath, onStep);
+        if (r) return { ...r, size, ownFailed };
+      } catch (e) {
+        s3Failed = e.message;
+        onStep(t('upload.s3Failed', { error: e.message }));
+      }
     }
   }
 
@@ -886,7 +1094,7 @@ async function publish(filePath, opts = {}) {
       continue;
     }
     hostFailures.delete(h.name);
-    return { url, host: h.name, temp: !!h.temp, size, ownFailed, expiresAt: null };
+    return { url, host: h.name, temp: !!h.temp, size, ownFailed, s3Failed, expiresAt: null };
   }
 
   if (single) {
@@ -915,7 +1123,7 @@ async function publish(filePath, opts = {}) {
 
 module.exports = {
   publish, verify, safeName, HOSTS, orderedHosts, speedTest, sizeText, request, requestStream, postFile,
-  uploadTo, uploadOwn, validateOwn, isLoopback,
+  uploadTo, uploadOwn, uploadS3, validateOwn, validateS3, isLoopback, isPrivateHost, s3Configured,
   MAX_UPLOAD, MAX_VIDEO_UPLOAD,
 };
 

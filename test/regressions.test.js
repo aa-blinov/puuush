@@ -501,6 +501,34 @@ test('setSettings не кладёт на диск то, что getSettings не 
   });
 });
 
+test('S3 — полноценная цель: настройка пишется, читается и переносится', () => {
+  withStore((load, dir) => {
+    const store = load();
+    // Поля S3 пишутся по одному, как поля своего сервера.
+    store.setSettings({ s3: { endpoint: 'https://s3.example.com' } });
+    store.setSettings({ s3: { bucket: 'puuush', access_key: 'a', secret_key: 'b' } });
+    let next = store.getSettings();
+    assert.strictEqual(next.s3.endpoint, 'https://s3.example.com');
+    assert.strictEqual(next.s3.bucket, 'puuush');
+    // Регион и публичный адрес имеют значения по умолчанию, а не дыры.
+    assert.strictEqual(next.s3.region, 'us-east-1');
+    assert.strictEqual(next.s3.public_base, '');
+
+    // Хост «только S3» принимается и переживает перезапуск.
+    store.setSettings({ host: 's3' });
+    const again = load();
+    assert.strictEqual(again.getSettings().host, 's3');
+    assert.strictEqual(again.getSettings().s3.bucket, 'puuush');
+
+    // Старый файл без поля s3 не ломается и получает пустые значения.
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{"host":"auto"}');
+    const old = load().getSettings();
+    assert.strictEqual(old.s3.endpoint, '');
+    assert.strictEqual(old.s3.bucket, '');
+    assert.strictEqual(old.s3.region, 'us-east-1');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Раунд QA 1.4.0
 // ---------------------------------------------------------------------------

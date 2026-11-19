@@ -133,6 +133,12 @@ Confirmed by the code:
 
 - Three ways to upload: a region of the screen, an arbitrary file, and an
   image from the clipboard.
+- Two private targets before the public hosts: the own server and an
+  S3/MinIO bucket. The S3 request is signed with AWS Signature Version 4 on
+  the machine, so the secret key never travels; the link is built from the
+  public address of the bucket, the file carries its real content type, and
+  the picture opens in the browser straight away. Open http is allowed only
+  for a local MinIO in a private network; a public endpoint needs https.
 - Two shortcuts for a region. One uploads and copies the link. The other
   copies the picture and uploads nothing.
 - A third shortcut records the screen with the microphone and, on Windows, the
@@ -176,9 +182,11 @@ Confirmed by the code:
   previous one saved and working.
 - "Start at login" (`launchAtLogin`, off by default) exists on macOS and
   Windows only; Electron cannot do it on Linux, so the checkbox is not shown.
-- The own server is tried first, then the cloud hosts in the order that the
+- The own server is tried first, then the configured S3/MinIO bucket, then
+  the cloud hosts in the order that the
   speed test measured on this machine, and the default order otherwise
-  (x0.at, uguu, pomf2, catbox, litterbox).
+  (x0.at, uguu, pomf2, catbox, litterbox). A failure of both private
+  targets is reported as a privacy downgrade; a working bucket is not.
 - The hint in the picker sits below the top of the work area, so on macOS it
   stays off the menu bar.
 - A link is checked with a real request before it is copied to the clipboard.
