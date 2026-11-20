@@ -197,8 +197,8 @@ app.whenReady().then(async () => {
   // На macOS комбинации показываются значками, на других системах словами.
   const mac = process.platform === 'darwin';
   step(start.hotkey === (mac ? '⌘⇧S' : 'Ctrl+Shift+S'), 'хоткей подставился', start.hotkey);
-  step(start.imageHotkey === (mac ? '⌘⌥S' : 'Ctrl+Alt+S'), 'хоткей картинки в буфер подставился', start.imageHotkey);
-  step(start.recordHotkey === (mac ? '⌘⌥R' : 'Ctrl+Alt+R'), 'хоткей записи подставился', start.recordHotkey);
+  step(start.imageHotkey === (mac ? '⌘⇧P' : 'Ctrl+Shift+P'), 'хоткей картинки в буфер подставился', start.imageHotkey);
+  step(start.recordHotkey === (mac ? '⌘⇧M' : 'Ctrl+Shift+M'), 'хоткей записи подставился', start.recordHotkey);
   step(start.micBox, 'галочка микрофона на месте', String(start.micBox));
   step(start.recordButton, 'кнопка записи на месте', String(start.recordButton));
   step(start.recordScreen === 'cursor', 'по умолчанию запись берёт экран под курсором', start.recordScreen);

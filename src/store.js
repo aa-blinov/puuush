@@ -21,10 +21,11 @@ const RECORD_GAINS = [1, 1.5, 2];
 
 const DEFAULTS = {
   hotkey: 'CommandOrControl+Shift+S',
-  imageHotkey: 'CommandOrControl+Alt+S', // картинка в буфер, без загрузки
-  // Не Ctrl+Shift+R: в браузере это жёсткая перезагрузка страницы, жест
-  // нужнее записи, поэтому запись живёт на Ctrl+Alt+R, рядом с Ctrl+Alt+S.
-  recordHotkey: 'CommandOrControl+Alt+R', // запись экрана со звуком
+  // Вся тройка на Ctrl+Shift, одной рукой: в браузерах эти буквы свободны,
+  // а Ctrl+Alt на Windows совпадает с AltGr и ломает ввод символов.
+  imageHotkey: 'CommandOrControl+Shift+P', // картинка в буфер, без загрузки
+  // Не Ctrl+Shift+R: в браузере это жёсткая перезагрузка страницы.
+  recordHotkey: 'CommandOrControl+Shift+M', // запись экрана со звуком
   host: 'auto', // auto | own | s3 | catbox | litterbox | x0 | uguu | pomf2
   // Порядок облачных хостингов, измеренный на этой машине. Пусто — порядок
   // по умолчанию. Регион меняет задержку, поэтому порядок не зашит.
@@ -204,6 +205,9 @@ function getSettings() {
   // Перенос: Ctrl+Shift+R был дефолтом записи, но в браузере это жёсткая
   // перезагрузка страницы, нужнее записи. Старый сохранённый дефолт едет на новый.
   if (saved.recordHotkey === 'CommandOrControl+Shift+R') merged.recordHotkey = DEFAULTS.recordHotkey;
+  // Перенос: хоткеи картинки и записи жили на Ctrl+Alt+…, это AltGr на Windows.
+  if (saved.imageHotkey === 'CommandOrControl+Alt+S') merged.imageHotkey = DEFAULTS.imageHotkey;
+  if (saved.recordHotkey === 'CommandOrControl+Alt+R') merged.recordHotkey = DEFAULTS.recordHotkey;
   // Значение по умолчанию уже лежит в merged, поэтому смотрим именно на
   // сохранённый файл: старая версия писала только recordAllScreens.
   if (typeof saved.recordScreen !== 'string' || !saved.recordScreen) {

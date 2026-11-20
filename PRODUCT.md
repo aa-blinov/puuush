@@ -32,12 +32,12 @@ the capture, the frame is dragged, `Enter` confirms, and the clipboard holds
 the link. Everything else in the app exists to make that sequence short and
 to make the failure visible when it does not work.
 
-There is a second shortcut for the same frame, `Ctrl+Alt+S` (`Cmd+Alt+S`) by
+There is a second shortcut for the same frame, `Ctrl+Shift+P` (`Cmd+Shift+P`) by
 default. It uploads nothing: the picture itself goes to the clipboard, for the
 places that take an image rather than a link. The two shortcuts are set
 separately, and they must not be the same.
 
-There is a third shortcut, `Ctrl+Alt+R` (`Cmd+Alt+R`), and it records the
+There is a third shortcut, `Ctrl+Shift+M` (`Cmd+Shift+M`), and it records the
 screen instead of cutting it. The same key starts and stops the recording, so
 a meeting is recorded by pressing one key twice. A recording can take the
 whole display, a region chosen with the same frame as a screenshot, or every
