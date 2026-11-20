@@ -195,7 +195,8 @@
 <svelte:window on:keydown={(event) => event.key === 'Escape' && closePreview()} />
 
 <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-bg">
-  <div class="page !max-w-6xl min-h-0 flex-1 overflow-y-auto">
+  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="page !max-w-6xl">
   <PageHeader
     class="[&>div:last-child]:ml-auto [&>div:last-child]:justify-end"
     title={$t('ui.gallery.title')}
@@ -395,6 +396,7 @@
       {/if}
     {/if}
   </main>
+  </div>
   </div>
 </div>
 
