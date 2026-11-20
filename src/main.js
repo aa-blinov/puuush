@@ -746,7 +746,7 @@ function historyMenu() {
       hour: '2-digit', minute: '2-digit',
     });
     return {
-      label: `${name}  ·  ${when}  (${hostLabel(h.host)})`,
+      label: `${name}, ${when} (${hostLabel(h.host)})`,
       toolTip: h.url,
       click: async () => {
         if (await deliverToClipboard(h.url, t('clipboard.what.history'))) {
