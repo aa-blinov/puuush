@@ -898,6 +898,7 @@
         value={hotkeyTexts.hotkey}
         readonly
         spellcheck="false"
+        class="text-center tabular-nums"
         on:focus={() => startListening('hotkey')}
         on:blur={stopListening}
       />
@@ -907,6 +908,7 @@
         value={hotkeyTexts.imageHotkey}
         readonly
         spellcheck="false"
+        class="text-center tabular-nums"
         on:focus={() => startListening('imageHotkey')}
         on:blur={stopListening}
       />
@@ -934,6 +936,7 @@
         value={hotkeyTexts.recordHotkey}
         readonly
         spellcheck="false"
+        class="text-center tabular-nums"
         on:focus={() => startListening('recordHotkey')}
         on:blur={stopListening}
       />

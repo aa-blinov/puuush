@@ -22,7 +22,9 @@ const RECORD_GAINS = [1, 1.5, 2];
 const DEFAULTS = {
   hotkey: 'CommandOrControl+Shift+S',
   imageHotkey: 'CommandOrControl+Alt+S', // картинка в буфер, без загрузки
-  recordHotkey: 'CommandOrControl+Shift+R', // запись экрана со звуком
+  // Не Ctrl+Shift+R: в браузере это жёсткая перезагрузка страницы, жест
+  // нужнее записи, поэтому запись живёт на Ctrl+Alt+R, рядом с Ctrl+Alt+S.
+  recordHotkey: 'CommandOrControl+Alt+R', // запись экрана со звуком
   host: 'auto', // auto | own | s3 | catbox | litterbox | x0 | uguu | pomf2
   // Порядок облачных хостингов, измеренный на этой машине. Пусто — порядок
   // по умолчанию. Регион меняет задержку, поэтому порядок не зашит.
@@ -199,6 +201,9 @@ function getSettings() {
   if (!RECORD_FPS.includes(Number(merged.recordFps))) merged.recordFps = DEFAULTS.recordFps;
   if (!RECORD_GAINS.includes(Number(merged.recordMicGain))) merged.recordMicGain = DEFAULTS.recordMicGain;
   if (!LANGS.includes(merged.lang)) merged.lang = DEFAULTS.lang;
+  // Перенос: Ctrl+Shift+R был дефолтом записи, но в браузере это жёсткая
+  // перезагрузка страницы, нужнее записи. Старый сохранённый дефолт едет на новый.
+  if (saved.recordHotkey === 'CommandOrControl+Shift+R') merged.recordHotkey = DEFAULTS.recordHotkey;
   // Значение по умолчанию уже лежит в merged, поэтому смотрим именно на
   // сохранённый файл: старая версия писала только recordAllScreens.
   if (typeof saved.recordScreen !== 'string' || !saved.recordScreen) {
