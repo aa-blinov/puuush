@@ -18,6 +18,7 @@ const {
   shell,
   dialog,
   BrowserWindow,
+  nativeTheme,
   nativeImage,
   screen,
   ipcMain,
@@ -876,6 +877,12 @@ function builtRendererPage(name) {
   return null;
 }
 
+// Фон окна до первой отрисовки: без него окно мигнуло бы белым перед тёмной
+// темой (или наоборот). Показываем окно только когда содержимое готово.
+function windowBackground() {
+  return nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ffffff';
+}
+
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) {
     settingsWin.show();
@@ -894,12 +901,15 @@ function openSettings() {
     autoHideMenuBar: true,
     roundedCorners: true,
     thickFrame: true,
+    show: false,
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  win.once('ready-to-show', () => win.show());
   settingsWin = win;
   // У окна настроек нет меню Electron: команды приложения остаются в трее.
   win.setMenu(null);
@@ -934,12 +944,15 @@ function openGallery() {
     autoHideMenuBar: true,
     roundedCorners: true,
     thickFrame: true,
+    show: false,
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  win.once('ready-to-show', () => win.show());
   galleryWin = win;
   win.setMenu(null);
   win.setMenuBarVisibility(false);
