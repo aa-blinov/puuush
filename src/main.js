@@ -739,15 +739,22 @@ function trayImage(state = 'idle') {
 function historyMenu() {
   const items = store.getHistory().filter((item) => item.url).slice(0, 10);
   if (!items.length) return [{ label: t('tray.historyEmpty'), enabled: false }];
-  const menu = items.map((h) => ({
-    label: `${h.url.length > 58 ? h.url.slice(0, 58) + '…' : h.url}  (${h.host})`,
-    toolTip: h.url,
-    click: async () => {
-      if (await deliverToClipboard(h.url, t('clipboard.what.history'))) {
-        showToast(t('toast.link'), h.url);
-      }
-    },
-  }));
+  const menu = items.map((h) => {
+    // Подпись — имя файла и время, а не URL: в чате видно, что вставляешь.
+    const name = h.file ? path.basename(h.file) : h.url;
+    const when = new Date(h.at).toLocaleTimeString(getLang() === 'ru' ? 'ru-RU' : 'en-GB', {
+      hour: '2-digit', minute: '2-digit',
+    });
+    return {
+      label: `${name}  ·  ${when}  (${hostLabel(h.host)})`,
+      toolTip: h.url,
+      click: async () => {
+        if (await deliverToClipboard(h.url, t('clipboard.what.history'))) {
+          showToast(t('toast.link'), h.url);
+        }
+      },
+    };
+  });
   menu.push({ type: 'separator' });
   menu.push({ label: t('tray.historyClear'), click: () => { store.clearHistory(); buildTrayMenu(); } });
   return menu;
